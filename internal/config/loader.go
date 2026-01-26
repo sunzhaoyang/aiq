@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	configDir  = ".config/aiq"
+	configDir  = ".aiqconfig"
 	configFile = "config.yaml"
 )
 

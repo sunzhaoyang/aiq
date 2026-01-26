@@ -18,7 +18,7 @@ func GetSourcesPath() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
-	return filepath.Join(homeDir, ".config/aiq", sourcesFile), nil
+	return filepath.Join(homeDir, ".aiqconfig", sourcesFile), nil
 }
 
 // LoadSources loads all sources from file

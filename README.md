@@ -1,25 +1,36 @@
 # AIQ
 
-AIQ (AI Query): An intelligent SQL client that translates your natural language questions into precise SQL queries for MySQL, SeekDB, and other databases.
+<div align="center">
 
-## Features
+**AIQ** - An intelligent SQL client that translates natural language into SQL queries
 
-- 🎯 **Natural Language to SQL**: Ask questions in plain English, get precise SQL queries
-- 📊 **Chart Visualization**: View query results as beautiful charts (bar, line, pie, scatter)
-- 🔌 **Multiple Database Support**: Supports MySQL, PostgreSQL, and SeekDB
-- ⚙️ **Easy Configuration**: Guided setup wizard for LLM and database connections
-- 🎨 **Beautiful CLI**: Interactive menus with smooth transitions and color-coded output
-- 🎨 **Customizable Charts**: Customize chart types, colors, titles, and axis labels
-- 🔒 **Secure**: Local configuration storage, no cloud sync required
+[![Go Version](https://img.shields.io/badge/go-1.21+-00ADD8?style=flat-square&logo=go)](https://golang.org)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg?style=flat-square)](LICENSE)
 
-## Installation
+*Ask questions in plain English, get precise SQL queries, visualize results as beautiful charts*
 
-### Prerequisites
+</div>
 
-- Go 1.21 or later
-- MySQL database (for database queries)
+---
 
-### Build from Source
+## 📖 Introduction
+
+AIQ (AI Query) is an intelligent SQL client that enables you to interact with databases using natural language. No need to write SQL manually—just ask questions in natural language, and AIQ will automatically generate SQL queries, execute them, and visualize the results as beautiful charts.
+
+### ✨ Key Features
+
+- 🗣️ **Natural Language to SQL** - Ask questions in plain English or Chinese, get precise SQL queries
+- 📊 **Chart Visualization** - Support for bar charts, line charts, pie charts, and scatter plots
+- 🔌 **Multiple Database Support** - MySQL, PostgreSQL, and SeekDB
+- 🎨 **Beautiful CLI Interface** - Smooth interactions and color-coded output
+- ⚙️ **Easy Configuration** - Guided setup wizard
+- 🔒 **Local Storage** - Configuration and connection info stored securely locally
+
+## 🚀 Quick Start
+
+### Installation
+
+#### Build from Source
 
 ```bash
 # Clone the repository
@@ -29,108 +40,210 @@ cd aiq
 # Build the binary
 go build -o aiq cmd/aiq/main.go
 
-# Install (optional)
+# Install to system path (optional)
 sudo mv aiq /usr/local/bin/
 ```
 
-## Quick Start
+### First Run
 
-1. **Run AIQ**:
+1. **Start AIQ**
    ```bash
    aiq
    ```
 
-2. **First Run Setup**:
-   - On first launch, you'll be guided through LLM configuration
-   - Enter your LLM API URL and API Key
-   - Configuration is saved to `~/.config/aiq/config.yaml`
+2. **Configure LLM**
+   - On first launch, a configuration wizard will start
+   - Enter LLM API URL (e.g., `https://api.openai.com/v1`)
+   - Enter API Key
+   - Enter model name (e.g., `gpt-4`)
+   - Configuration is saved to `~/.aiqconfig/config.yaml`
 
-3. **Add a Database Source**:
-   - Select `source` from the main menu
-   - Choose `add` to add a new MySQL connection
-   - Enter connection details (host, port, database, username, password)
+3. **Add Data Source**
+   ```bash
+   # Select 'source' from the main menu
+   # Choose 'add' to add a new connection
+   # Enter database connection details:
+   #   - Database type: MySQL / PostgreSQL / SeekDB
+   #   - Host address
+   #   - Port
+   #   - Database name
+   #   - Username and password
+   ```
 
-4. **Query Your Database**:
-   - Select `sql` from the main menu
-   - Choose a data source
-   - Enter your question in natural language
-   - Review the generated SQL and confirm execution
-   - Choose to view results as table, chart, or both
-   - Customize chart settings (type, color, title, labels)
+4. **Start Querying**
+   ```bash
+   # Select 'chat' from the main menu
+   # Choose a data source
+   # Enter your question in natural language, for example:
+   #   "Show total sales for the last week"
+   #   "Count products by category"
+   #   "Show user registration trends"
+   ```
 
-## Usage
+## 💡 Features
 
-### Main Menu
+### 1. Natural Language to SQL
 
-- **config**: Manage LLM and tool configuration
-- **source**: Manage database connection configurations
-- **sql**: Enter SQL interactive mode (requires a selected source)
-- **exit**: Exit the application
+No need to write SQL—just ask questions in natural language:
 
-### Configuration Management
+```
+aiq> Show total orders for the last week
+```
 
-- View current LLM configuration
-- Update LLM API URL
-- Update LLM API Key
+AIQ will automatically:
+- Understand your question
+- Generate the corresponding SQL query
+- Execute the query and return results
 
-### Data Source Management
+### 2. Chart Visualization
 
-- Add new database connections (MySQL, PostgreSQL, SeekDB)
-- List all configured sources
-- Remove database connections
+Query results can be automatically visualized as various chart types:
 
-### Chart Visualization
-
-AIQ supports multiple chart types for visualizing query results:
-
-- **Bar Chart**: For categorical vs numerical data (e.g., sales by region)
-- **Line Chart**: For time series or sequential data (e.g., sales over time)
-- **Pie Chart**: For proportional categorical data (e.g., market share)
-- **Scatter Plot**: For numerical vs numerical data (e.g., correlation analysis)
-
-**Chart Customization**:
-- Select chart type manually or use auto-detection
-- Choose from predefined color palettes
-- Customize chart title and axis labels
-- Automatic detection of suitable chart types based on data structure
-
-**Example Queries for Charts**:
+#### 📊 Bar Chart
+Perfect for categorical data comparison, for example:
 ```sql
--- Bar chart: Count by category
 SELECT category, COUNT(*) AS count FROM products GROUP BY category;
+```
 
--- Line chart: Sales over time
+#### 📈 Line Chart
+Ideal for time series data, for example:
+```sql
 SELECT date, SUM(amount) AS total FROM sales GROUP BY date ORDER BY date;
+```
 
--- Pie chart: Distribution
+#### 🥧 Pie Chart
+Great for proportional distribution, for example:
+```sql
 SELECT status, COUNT(*) AS count FROM orders GROUP BY status;
+```
 
--- Scatter plot: Correlation
+#### 📉 Scatter Plot
+Useful for numerical relationship analysis, for example:
+```sql
 SELECT price, sales FROM products;
 ```
 
-## Configuration
+### 3. Intelligent Chart Detection
 
-Configuration files are stored in `~/.config/aiq/`:
+AIQ automatically detects the most suitable chart type based on query result structure:
+- **Categorical + Numerical** → Bar chart or Pie chart
+- **Temporal + Numerical** → Line chart
+- **Numerical + Numerical** → Scatter plot
 
-- `config.yaml`: LLM configuration (URL, API Key)
-- `sources.yaml`: Database connection configurations
+### 4. Multiple Database Support
 
-## Development
+Supports various database types:
+- **MySQL** - The most popular relational database
+- **PostgreSQL** - Powerful open-source database
+- **SeekDB** - OceanBase distributed database
+
+### 5. Interactive Interface
+
+- 🎯 Clear menu navigation
+- 🎨 Color-coded output and syntax highlighting
+- ⌨️ Support for Chinese input
+- 📋 Table and chart display
+
+## 📚 Usage Guide
+
+### Main Menu
+
+AIQ provides a clean main menu:
+
+```
+AIQ - Main Menu
+? config   - Manage LLM configuration
+  source   - Manage database connections
+  chat     - Query database with natural language
+  exit     - Exit application
+```
+
+### Configuration Management
+
+Select `config` from the main menu to:
+- View current LLM configuration
+- Update API URL
+- Update API Key
+- Update model name
+
+### Data Source Management
+
+Select `source` from the main menu to:
+- Add new database connections
+- View all configured data sources
+- Remove data sources
+
+### Chat Mode
+
+Select `chat` from the main menu to enter query mode:
+
+1. **Select Data Source** - Choose from configured data sources
+2. **Enter Question** - Describe your query in natural language
+3. **View Results** - Choose to display as table, chart, or both
+4. **Select Chart Type** - If multiple chart types are available, choose your preferred one
+
+### Example Queries
+
+```
+# Aggregation queries
+aiq> Count employees by department
+
+# Trend analysis
+aiq> Show sales trends for the last month
+
+# Distribution analysis
+aiq> Show order status distribution
+
+# Correlation analysis
+aiq> Analyze the relationship between product price and sales
+```
+
+## ⚙️ Configuration
+
+Configuration files are stored in `~/.aiqconfig/`:
+
+- **config.yaml** - LLM configuration (URL, API Key, Model)
+- **sources.yaml** - Database connection configurations
+
+### Configuration Examples
+
+**config.yaml**
+```yaml
+llm:
+  url: https://api.openai.com/v1
+  apiKey: sk-...
+  model: gpt-4
+```
+
+**sources.yaml**
+```yaml
+sources:
+  - name: local-mysql
+    type: MySQL
+    host: localhost
+    port: 3306
+    database: testdb
+    username: root
+    password: password
+```
+
+## 🛠️ Development
 
 ### Project Structure
 
 ```
-cmd/aiq/          # Main entry point
-internal/
-  cli/            # CLI commands and menu system
-  config/         # Configuration management
-  source/         # Data source management
-  sql/            # SQL interactive mode
-  llm/            # LLM client integration
-  db/             # Database connection and query execution
-  chart/          # Chart visualization (bar, line, pie, scatter)
-  ui/             # UI components (prompts, colors, loading, charts)
+aiq/
+├── cmd/aiq/          # Main entry point
+├── internal/
+│   ├── cli/          # CLI commands and menu system
+│   ├── config/       # Configuration management
+│   ├── source/       # Data source management
+│   ├── sql/          # SQL interactive mode (chat mode)
+│   ├── llm/          # LLM client integration
+│   ├── db/           # Database connection and query execution
+│   ├── chart/        # Chart visualization (bar, line, pie, scatter)
+│   └── ui/           # UI components (prompts, colors, loading, charts)
+└── openspec/         # OpenSpec change management
 ```
 
 ### Building
@@ -145,10 +258,20 @@ go build -o aiq cmd/aiq/main.go
 go test ./...
 ```
 
-## License
+## 📝 License
 
-See [LICENSE](LICENSE) file for details.
+This project is licensed under the [Apache License 2.0](LICENSE).
 
-## Contributing
+## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+---
+
+<div align="center">
+
+**Made with ❤️ using Go**
+
+[Report Bug](https://github.com/aiq/aiq/issues) · [Request Feature](https://github.com/aiq/aiq/issues) · [View Documentation](https://github.com/aiq/aiq)
+
+</div>

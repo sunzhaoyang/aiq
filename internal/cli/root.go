@@ -45,7 +45,7 @@ func Run() error {
 		items := []ui.MenuItem{
 			{Label: "config   - Manage LLM configuration", Value: "config"},
 			{Label: "source   - Manage database connections", Value: "source"},
-			{Label: "sql      - Query database with natural language", Value: "sql"},
+			{Label: "chat     - Query database with natural language", Value: "chat"},
 			{Label: "exit     - Exit application", Value: "exit"},
 		}
 
@@ -66,7 +66,7 @@ func Run() error {
 			if err := RunSourceMenu(); err != nil {
 				ui.ShowError(err.Error())
 			}
-		case "sql":
+		case "chat":
 			if err := sql.RunSQLMode(); err != nil {
 				ui.ShowError(err.Error())
 			}

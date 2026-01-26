@@ -68,7 +68,7 @@ func RunSQLMode() error {
 		schema = &db.Schema{}
 	}
 
-	ui.ShowInfo(fmt.Sprintf("Entering SQL mode. Source: %s (%s/%s:%d/%s)", src.Name, src.Type, src.Host, src.Port, src.Database))
+	ui.ShowInfo(fmt.Sprintf("Entering chat mode. Source: %s (%s/%s:%d/%s)", src.Name, src.Type, src.Host, src.Port, src.Database))
 	ui.ShowInfo("Type your question in natural language, or 'exit' to return to main menu.")
 	fmt.Println()
 
@@ -93,9 +93,9 @@ func RunSQLMode() error {
 				fmt.Println()
 				continue
 			}
-			// EOF (Ctrl+D) - exit SQL mode
+			// EOF (Ctrl+D) - exit chat mode
 			fmt.Println()
-			ui.ShowInfo("Exiting SQL mode (EOF).")
+			ui.ShowInfo("Exiting chat mode (EOF).")
 			return nil
 		}
 
