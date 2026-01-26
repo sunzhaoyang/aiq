@@ -1,0 +1,113 @@
+# This workflow will build a golang project for multiple platforms
+# and create a release with all binaries on tag push.
+
+name: Go Build and Release
+
+on:
+  push:
+    branches: [ "main" ]
+    # 新增：监听 tag 推送，通常是 v* 格式 (e.g., v1.0.0)
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+
+  # 重命名 job 为更能反映其作用的名称
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+    - name: Build
+      run: go build -v ./...
+    - name: Test
+      run: go test -v ./...
+
+  # 新增：专门用于构建多平台二进制文件的 job
+  build-multi-platform:
+    # 只有当推送 tag 时才运行此 job，避免每次 push 都构建发布
+    if: startsWith(github.ref, 'refs/tags/')
+    # 设置构建矩阵，定义所有需要编译的平台
+    strategy:
+      matrix:
+        # 在这里定义你需要的所有平台组合
+        platform:
+          - name: "linux-amd64"
+            goos: linux
+            goarch: amd64
+            ext: ""
+          - name: "linux-arm64"
+            goos: linux
+            goarch: arm64
+            ext: ""
+          - name: "windows-amd64"
+            goos: windows
+            goarch: amd64
+            ext: ".exe"
+          - name: "darwin-amd64"    # macOS Intel
+            goos: darwin
+            goarch: amd64
+            ext: ""
+          - name: "darwin-arm64"    # macOS Apple Silicon (M1/M2)
+            goos: darwin
+            goarch: arm64
+            ext: ""
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.20'
+
+      - name: Build for ${{ matrix.platform.name }}
+        run: |
+          # 使用矩阵中的变量进行交叉编译
+          GOOS=${{ matrix.platform.goos }} GOARCH=${{ matrix.platform.goarch }} go build -o "bin/myapp-${{ matrix.platform.name }}${{ matrix.platform.ext }}" ./...
+        env:
+          # 传递环境变量给 go build 命令
+          GOOS: ${{ matrix.platform.goos }}
+          GOARCH: ${{ matrix.platform.goarch }}
+
+      - name: Upload ${{ matrix.platform.name }} artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.platform.name }}
+          path: bin/myapp-${{ matrix.platform.name }}${{ matrix.platform.ext }}
+
+  # 新增：创建 GitHub Release 并上传所有二进制文件
+  create-release:
+    # 依赖 build-multi-platform job，且仅在推送 tag 时运行
+    needs: build-multi-platform
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+          pattern: binary-*
+          merge-multiple: true
+
+      - name: List files for debugging
+        run: ls -la ./artifacts/
+
+      - name: Create Release
+        # 使用官方 action 创建 Release
+        uses: softprops/action-gh-release@v1
+        with:
+          # 从 tag 名中获取版本号（去掉 'refs/tags/' 前缀）
+          tag_name: ${{ github.ref_name }}
+          # Release 名称，例如 "Version v1.0.0"
+          name: Release ${{ github.ref_name }}
+          # 是否生成草稿 Release (true) 还是直接发布 (false)
+          draft: false
+          prerelease: false
+          # 上传所有下载的构件
+          files: |
+            ./artifacts/*
