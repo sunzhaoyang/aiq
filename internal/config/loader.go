@@ -3,37 +3,19 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	configDir  = ".aiqconfig"
-	configFile = "config.yaml"
-)
-
 // GetConfigPath returns the full path to the configuration file
+// Deprecated: Use GetConfigFilePath() instead
 func GetConfigPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return filepath.Join(homeDir, configDir, configFile), nil
-}
-
-// GetConfigDir returns the configuration directory path
-func GetConfigDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return filepath.Join(homeDir, configDir), nil
+	return GetConfigFilePath()
 }
 
 // Load loads configuration from file
 func Load() (*Config, error) {
-	configPath, err := GetConfigPath()
+	configPath, err := GetConfigFilePath()
 	if err != nil {
 		return nil, err
 	}
@@ -58,17 +40,12 @@ func Load() (*Config, error) {
 
 // Save saves configuration to file
 func Save(config *Config) error {
-	configDir, err := GetConfigDir()
-	if err != nil {
+	// Ensure directory structure exists
+	if err := EnsureDirectoryStructure(); err != nil {
 		return err
 	}
 
-	// Create config directory if it doesn't exist
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
-
-	configPath, err := GetConfigPath()
+	configPath, err := GetConfigFilePath()
 	if err != nil {
 		return err
 	}
@@ -87,7 +64,7 @@ func Save(config *Config) error {
 
 // Exists checks if configuration file exists
 func Exists() (bool, error) {
-	configPath, err := GetConfigPath()
+	configPath, err := GetConfigFilePath()
 	if err != nil {
 		return false, err
 	}

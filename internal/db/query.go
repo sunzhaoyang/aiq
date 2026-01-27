@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -76,6 +77,22 @@ func (c *Connection) ExecuteQuery(ctx context.Context, sqlQuery string) (*QueryR
 				default:
 					// Fallback to string representation
 					row[i] = fmt.Sprintf("%v", val)
+				}
+			}
+		}
+
+		// Check if row contains error information (for CALL statements and stored procedures)
+		// MySQL may return error messages in result sets, especially for stored procedures
+		// MySQL error format: "ERROR <code> (<SQLSTATE>): <message>"
+		// Example: "ERROR 11114 (HY000): The param 'provider' is empty or null"
+		for _, cell := range row {
+			if cell != "" {
+				cellUpper := strings.ToUpper(cell)
+				// Check for MySQL error format: ERROR followed by number and SQLSTATE
+				if strings.HasPrefix(cellUpper, "ERROR") {
+					// Check if it matches MySQL error pattern: ERROR <number> (<SQLSTATE>)
+					// This is a MySQL error message returned in result set
+					return nil, fmt.Errorf("query execution failed: %s", cell)
 				}
 			}
 		}

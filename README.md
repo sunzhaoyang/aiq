@@ -21,136 +21,43 @@ AIQ (AI Query) is an intelligent SQL client that enables you to interact with da
 
 - 🗣️ **Natural Language to SQL** - Ask questions in plain English or Chinese, get precise SQL queries
 - 💬 **Multi-Turn Conversation** - Maintain conversation context for refined queries and follow-up questions
-- 📊 **Chart Visualization** - Support for bar charts, line charts, pie charts, and scatter plots
+- 📊 **Chart Visualization** - Automatic chart detection and rendering (bar, line, pie, scatter plots)
 - 🔌 **Multiple Database Support** - [seekdb](https://www.oceanbase.ai/), MySQL, and PostgreSQL
+- 🎯 **Skills System** - Extend AI capabilities with custom domain knowledge
 - 🎨 **Beautiful CLI Interface** - Smooth interactions and color-coded output
-- ⚙️ **Easy Configuration** - Guided setup wizard
-- 🔒 **Local Storage** - Configuration and connection info stored securely locally
 - 💾 **Session Persistence** - Save and restore conversation sessions
 
 ## 🚀 Quick Start
 
 ### Installation
 
-#### Build from Source
-
 ```bash
-# Clone the repository
+# Clone and build
 git clone https://github.com/aiq/aiq.git
 cd aiq
-
-# Build the binary
 go build -o aiq cmd/aiq/main.go
 
-# Install to system path (optional)
+# Install (optional)
 sudo mv aiq /usr/local/bin/
 ```
 
 ### First Run
 
-1. **Start AIQ**
-   ```bash
-   aiq
-   ```
+1. **Start AIQ**: `aiq`
+2. **Configure LLM**: Enter API URL, API Key, and model name (wizard runs on first launch)
+3. **Add Data Source**: Select `source` → `add` → Enter database connection details
+4. **Start Querying**: Select `chat` → Choose data source → Ask questions in natural language
 
-2. **Configure LLM**
-   - On first launch, a configuration wizard will start
-   - Enter LLM API URL (e.g., `https://api.openai.com/v1`)
-   - Enter API Key
-   - Enter model name (e.g., `gpt-4`)
-   - Configuration is saved to `~/.aiqconfig/config.yaml`
-
-3. **Add Data Source**
-   ```bash
-   # Select 'source' from the main menu
-   # Choose 'add' to add a new connection
-   # Enter database connection details:
-   #   - Database type: seekdb / MySQL / PostgreSQL
-   #   - Host address
-   #   - Port
-   #   - Database name
-   #   - Username and password
-   ```
-
-4. **Start Querying**
-   ```bash
-   # Select 'chat' from the main menu
-   # Choose a data source
-   # Enter your question in natural language, for example:
-   #   "Show total sales for the last week"
-   #   "Count products by category"
-   #   "Show user registration trends"
-   ```
-
-## 💡 Features
-
-### 1. Natural Language to SQL
-
-No need to write SQL—just ask questions in natural language:
-
+**Example queries:**
 ```
-aiq> Show total orders for the last week
+aiq> Show total sales for the last week
+aiq> Count products by category
+aiq> Show user registration trends
 ```
 
-AIQ will automatically:
-- Understand your question
-- Generate the corresponding SQL query
-- Execute the query and return results
-
-### 2. Chart Visualization
-
-Query results can be automatically visualized as various chart types:
-
-#### 📊 Bar Chart
-Perfect for categorical data comparison, for example:
-```sql
-SELECT category, COUNT(*) AS count FROM products GROUP BY category;
-```
-
-#### 📈 Line Chart
-Ideal for time series data, for example:
-```sql
-SELECT date, SUM(amount) AS total FROM sales GROUP BY date ORDER BY date;
-```
-
-#### 🥧 Pie Chart
-Great for proportional distribution, for example:
-```sql
-SELECT status, COUNT(*) AS count FROM orders GROUP BY status;
-```
-
-#### 📉 Scatter Plot
-Useful for numerical relationship analysis, for example:
-```sql
-SELECT price, sales FROM products;
-```
-
-### 3. Intelligent Chart Detection
-
-AIQ automatically detects the most suitable chart type based on query result structure:
-- **Categorical + Numerical** → Bar chart or Pie chart
-- **Temporal + Numerical** → Line chart
-- **Numerical + Numerical** → Scatter plot
-
-### 4. Multiple Database Support
-
-Supports various database types:
-- **[seekdb](https://www.oceanbase.ai/)** - The AI-Native Search Database that unifies relational, vector, text, JSON and GIS in a single engine
-- **MySQL** - The most popular relational database
-- **PostgreSQL** - Powerful open-source database
-
-### 5. Interactive Interface
-
-- 🎯 Clear menu navigation
-- 🎨 Color-coded output and syntax highlighting
-- ⌨️ Support for Chinese input
-- 📋 Table and chart display
-
-## 📚 Usage Guide
+## 📚 Usage
 
 ### Main Menu
-
-AIQ provides a clean main menu:
 
 ```
 AIQ - Main Menu
@@ -160,100 +67,162 @@ AIQ - Main Menu
   exit     - Exit application
 ```
 
-### Configuration Management
-
-Select `config` from the main menu to:
-- View current LLM configuration
-- Update API URL
-- Update API Key
-- Update model name
-
-### Data Source Management
-
-Select `source` from the main menu to:
-- Add new database connections
-- View all configured data sources
-- Remove data sources
-
 ### Chat Mode
 
-Select `chat` from the main menu to enter query mode:
-
-#### Multi-Turn Conversation
-
-AIQ supports multi-turn conversations, maintaining context across queries:
-
+**Multi-turn conversation:**
 ```
 aiq> Show total sales for last week
 [Generated SQL and results...]
 
 aiq> Modify to show only last 3 days
-[AIQ understands "modify" refers to the previous query and generates updated SQL...]
-
-aiq> Group by product category instead
-[AIQ continues the conversation, refining the query...]
+[AIQ understands context and generates updated SQL...]
 ```
 
-#### Conversation Commands
-
+**Commands:**
 - `/history` - View conversation history
 - `/clear` - Clear conversation history
-- `exit` or `back` - Exit chat mode (session will be saved automatically)
+- `exit` or `back` - Exit chat mode (session auto-saved)
 
-#### Session Management
-
-When you exit chat mode, your conversation session is automatically saved:
-
-```
-Current session saved to ~/.aiqconfig/session_20260126100000.json
-Run 'aiq -s ~/.aiqconfig/session_20260126100000.json' to continue.
-```
-
-To restore a previous session:
-
+**Session restore:**
 ```bash
-aiq -s ~/.aiqconfig/session_20260126100000.json
+aiq -s ~/.aiqconfig/sessions/session_20260126100000.json
 ```
 
-Or use the `--session` flag:
+### Chart Visualization
 
+AIQ automatically detects suitable chart types based on query results:
+- **Categorical + Numerical** → Bar chart or Pie chart
+- **Temporal + Numerical** → Line chart
+- **Numerical + Numerical** → Scatter plot
+
+## 🎯 Skills - Extending AI Capabilities
+
+Skills allow you to extend AIQ's capabilities by providing custom instructions and context to the AI agent. Skills are automatically matched and loaded based on your queries.
+
+### Quick Start
+
+1. **Create Skill directory:**
 ```bash
-aiq --session ~/.aiqconfig/session_20260126100000.json
+mkdir -p ~/.aiqconfig/skills/my-skill
 ```
 
-#### Basic Usage
+2. **Create SKILL.md file:**
+```markdown
+---
+name: my-skill
+description: Domain-specific guidance for metrics, dashboards, and SQL patterns
+---
 
-1. **Select Data Source** - Choose from configured data sources
-2. **Enter Question** - Describe your query in natural language
-3. **View Results** - Choose to display as table, chart, or both
-4. **Select Chart Type** - If multiple chart types are available, choose your preferred one
+# My Custom Skill
 
-### Example Queries
+This skill provides guidance for analytics workflows and common SQL patterns.
+
+## Key Concepts
+
+- Naming conventions for metrics and dimensions
+- KPI calculation patterns and caveats
+- Time-based aggregations and cohort analysis
+
+## Usage Examples
+
+### Weekly KPI Summary
+```sql
+SELECT DATE_TRUNC('week', created_at) AS week,
+       COUNT(*) AS orders,
+       SUM(amount) AS revenue
+FROM orders
+GROUP BY week
+ORDER BY week;
+```
+
+3. **Restart AIQ** - Skills are loaded automatically on startup
+
+4. **Use it** - When you query about topics matching your skill's description, it will be automatically loaded
+
+### Skill File Format
+
+Each Skill must have:
+
+- **YAML Frontmatter** (required):
+  - `name`: Skill name (lowercase, use hyphens, e.g., `my-skill`)
+  - `description`: Skill description (max 200 chars, used for query matching)
+
+- **Markdown content**: Instructions, examples, and guidance
+
+### How It Works
+
+1. **On Startup**: AIQ loads metadata (name, description) from all Skills in `~/.aiqconfig/skills/`
+2. **On Query**: System extracts keywords and matches against Skills metadata
+3. **Auto-Load**: Top 3 most relevant Skills are loaded into the prompt
+4. **Smart Compression**: System automatically manages prompt length (compresses history, evicts low-priority Skills)
+
+### Matching Rules
+
+Skills are matched based on relevance scoring:
+- **Exact name match** (highest priority): Query exactly matches Skill name
+- **Partial name match**: Query contains Skill name or vice versa
+- **Description keyword match**: Query keywords appear in Skill description
+
+### Recommended Skills
+
+- **[seekdb Skill](https://github.com/oceanbase/seekdb-ecology-plugins/blob/main/claudecode-plugin/skills/seekdb/SKILL.md)** - Documentation catalog and usage guidance for SeekDB
+
+### Built-in Tools
+
+Skills can use these built-in tools in their instructions:
+
+- **`execute_sql`** - Execute SQL queries against the database
+- **`http_request`** - Make HTTP requests (GET, POST, PUT, DELETE)
+- **`execute_command`** - Execute shell commands (with security allowlist)
+- **`file_operations`** - Read/write files (restricted to safe directories)
+
+**Note**: Skills are context information, not tools themselves. They guide the AI on how to use the built-in tools.
+
+### Prompt Management
+
+System automatically manages prompt length:
+- **80% threshold**: Compress conversation history (keep last 10 messages)
+- **90% threshold**: Evict low-priority Skills (keep active and relevant)
+- **95% threshold**: Aggressive compression (keep last 5 messages and top Skills)
+
+### Directory Structure
+
+Skills are stored in `~/.aiqconfig/skills/<skill-name>/SKILL.md`:
 
 ```
-# Aggregation queries
-aiq> Count employees by department
-
-# Trend analysis
-aiq> Show sales trends for the last month
-
-# Distribution analysis
-aiq> Show order status distribution
-
-# Correlation analysis
-aiq> Analyze the relationship between product price and sales
+~/.aiqconfig/
+└── skills/
+    ├── my-skill/
+    │   └── SKILL.md
+    └── data-analysis/
+        └── SKILL.md
 ```
+
+**Note**: Each Skill directory contains only one `SKILL.md` file. If you need multiple files, merge content into one file or split into multiple smaller Skills.
+
+### Troubleshooting
+
+**Skills not loaded:**
+- Check directory structure: `~/.aiqconfig/skills/<skill-name>/SKILL.md`
+- Verify YAML frontmatter format (must start/end with `---`)
+- Ensure `name` and `description` fields exist
+- Check startup logs for errors
+
+**Skills not matched:**
+- Include relevant keywords in Skill `description`
+- Try using Skill name in your query
+- Check if multiple Skills are competing (only top 3 are selected)
 
 ## ⚙️ Configuration
 
 Configuration files are stored in `~/.aiqconfig/`:
 
-- **config.yaml** - LLM configuration (URL, API Key, Model)
-- **sources.yaml** - Database connection configurations
+- **config/config.yaml** - LLM configuration (URL, API Key, Model)
+- **config/sources.yaml** - Database connection configurations
+- **sessions/** - Conversation session files (auto-generated)
+- **skills/** - Custom Skills (see Skills section above)
 
-### Configuration Examples
-
-**config.yaml**
+**Example config.yaml:**
 ```yaml
 llm:
   url: https://api.openai.com/v1
@@ -261,7 +230,7 @@ llm:
   model: gpt-4
 ```
 
-**sources.yaml**
+**Example sources.yaml:**
 ```yaml
 sources:
   - name: local-mysql
@@ -285,10 +254,13 @@ aiq/
 │   ├── config/       # Configuration management
 │   ├── source/       # Data source management
 │   ├── sql/          # SQL interactive mode (chat mode)
+│   ├── skills/       # Skills system (matching, loading, management)
+│   ├── prompt/       # Prompt building and compression
 │   ├── llm/          # LLM client integration
 │   ├── db/           # Database connection and query execution
-│   ├── chart/        # Chart visualization (bar, line, pie, scatter)
-│   └── ui/           # UI components (prompts, colors, loading, charts)
+│   ├── chart/        # Chart visualization
+│   ├── tool/         # Tool system (built-in tools)
+│   └── ui/           # UI components
 └── openspec/         # OpenSpec change management
 ```
 

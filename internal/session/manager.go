@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/aiq/aiq/internal/config"
 )
 
 // SaveSession saves the session to a JSON file
@@ -14,21 +16,21 @@ func SaveSession(session *Session, filePath string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create session directory: %w", err)
 	}
-	
+
 	// Update last updated timestamp
 	session.UpdateLastUpdated()
-	
+
 	// Marshal session to JSON
 	data, err := json.MarshalIndent(session, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal session: %w", err)
 	}
-	
+
 	// Write to file
 	if err := os.WriteFile(filePath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write session file: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -39,18 +41,18 @@ func LoadSession(filePath string) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read session file: %w", err)
 	}
-	
+
 	// Validate JSON format
 	var session Session
 	if err := json.Unmarshal(data, &session); err != nil {
 		return nil, fmt.Errorf("failed to parse session file (invalid JSON): %w", err)
 	}
-	
+
 	// Validate required fields
 	if err := validateSession(&session); err != nil {
 		return nil, fmt.Errorf("session validation failed: %w", err)
 	}
-	
+
 	return &session, nil
 }
 
@@ -65,7 +67,7 @@ func validateSession(session *Session) error {
 	if session.Metadata.CreatedAt.IsZero() {
 		return fmt.Errorf("missing created_at in session metadata")
 	}
-	
+
 	// Validate messages
 	for i, msg := range session.Messages {
 		if msg.Role != "user" && msg.Role != "assistant" {
@@ -75,18 +77,18 @@ func validateSession(session *Session) error {
 			return fmt.Errorf("empty content in message %d", i)
 		}
 	}
-	
+
 	return nil
 }
 
 // GetSessionFilePath generates a session file path with timestamp
-// Format: ~/.aiqconfig/session_YYYYMMDDHHMMSS.json
+// Format: ~/.aiqconfig/sessions/session_YYYYMMDDHHMMSS.json
 func GetSessionFilePath(timestamp string) (string, error) {
-	homeDir, err := os.UserHomeDir()
+	sessionsDir, err := config.GetSessionsDir()
 	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+		return "", err
 	}
-	
+
 	fileName := fmt.Sprintf("session_%s.json", timestamp)
-	return filepath.Join(homeDir, ".aiqconfig", fileName), nil
+	return filepath.Join(sessionsDir, fileName), nil
 }

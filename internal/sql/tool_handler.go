@@ -4,33 +4,132 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/aiq/aiq/internal/db"
 	"github.com/aiq/aiq/internal/llm"
+	"github.com/aiq/aiq/internal/prompt"
+	"github.com/aiq/aiq/internal/skills"
 	"github.com/aiq/aiq/internal/tool"
+	"github.com/aiq/aiq/internal/tool/builtin"
 	"github.com/aiq/aiq/internal/ui"
 )
 
 // ToolHandler handles tool execution and manages tool calling loop
 type ToolHandler struct {
-	conn *db.Connection
+	conn          *db.Connection
+	skillsManager *skills.Manager
+	matcher       *skills.Matcher
+	promptBuilder *prompt.Builder
+	compressor    *prompt.Compressor
 }
 
 // NewToolHandler creates a new tool handler
-func NewToolHandler(conn *db.Connection) *ToolHandler {
+func NewToolHandler(conn *db.Connection, skillsManager *skills.Manager) *ToolHandler {
 	return &ToolHandler{
-		conn: conn,
+		conn:          conn,
+		skillsManager: skillsManager,
+		matcher:       skills.NewMatcher(),
+		promptBuilder: prompt.NewBuilder(""), // Will be set in HandleToolCallLoop
+		compressor:    prompt.NewCompressor(prompt.DefaultContextWindow),
 	}
+}
+
+// formatToolCall formats a tool call for display, truncating long arguments
+func (h *ToolHandler) formatToolCall(toolCall llm.ToolCall) string {
+	toolName := toolCall.Function.Name
+	argsStr := toolCall.Function.Arguments
+	
+	// Try to parse arguments to format them nicely
+	args, err := toolCall.ParseArguments()
+	if err != nil {
+		// If parsing fails, just show the raw arguments (truncated)
+		return h.formatToolCallWithRawArgs(toolName, argsStr)
+	}
+	
+	// Format arguments based on tool type
+	switch toolName {
+	case "execute_sql":
+		if sql, ok := args["sql"].(string); ok {
+			return fmt.Sprintf("Calling tool [%s] with SQL: %s", toolName, h.truncateString(sql, 80))
+		}
+	case "execute_command":
+		if cmd, ok := args["command"].(string); ok {
+			return fmt.Sprintf("Calling tool [%s] with command: %s", toolName, h.truncateString(cmd, 80))
+		}
+	case "http_request":
+		if url, ok := args["url"].(string); ok {
+			method := "GET"
+			if m, ok := args["method"].(string); ok {
+				method = m
+			}
+			return fmt.Sprintf("Calling tool [%s] %s %s", toolName, method, h.truncateString(url, 60))
+		}
+	case "file_operations":
+		if op, ok := args["operation"].(string); ok {
+			if path, ok := args["path"].(string); ok {
+				return fmt.Sprintf("Calling tool [%s] %s: %s", toolName, op, h.truncateString(path, 60))
+			}
+			return fmt.Sprintf("Calling tool [%s] %s", toolName, op)
+		}
+	case "render_table", "render_chart":
+		if rows, ok := args["rows"].([]interface{}); ok {
+			rowCount := len(rows)
+			return fmt.Sprintf("Calling tool [%s] with %d row(s)", toolName, rowCount)
+		}
+	}
+	
+	// Default: show tool name with truncated arguments
+	return fmt.Sprintf("Calling tool [%s] with args: %s", toolName, h.truncateString(argsStr, 60))
+}
+
+// formatToolCallWithRawArgs formats tool call when arguments can't be parsed
+func (h *ToolHandler) formatToolCallWithRawArgs(toolName, argsStr string) string {
+	return fmt.Sprintf("Calling tool [%s] with args: %s", toolName, h.truncateString(argsStr, 60))
+}
+
+// truncateString truncates a string to maxLen, adding "..." if truncated
+func (h *ToolHandler) truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // ExecuteTool executes a tool call and returns the result
 func (h *ToolHandler) ExecuteTool(ctx context.Context, toolCall llm.ToolCall) (json.RawMessage, error) {
 	toolName := toolCall.Function.Name
-	
+
 	// Parse arguments from JSON string
 	args, err := toolCall.ParseArguments()
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse tool arguments: %w", err)
+		// Try to handle case where LLM returns a plain string instead of JSON
+		// This can happen if the LLM misunderstands the format
+		argsStr := strings.TrimSpace(toolCall.Function.Arguments)
+		if strings.HasPrefix(argsStr, `"`) && strings.HasSuffix(argsStr, `"`) {
+			// It's a JSON string, try to unwrap it
+			var unwrapped string
+			if jsonErr := json.Unmarshal([]byte(argsStr), &unwrapped); jsonErr == nil {
+				// Try to parse the unwrapped string as JSON
+				if jsonErr2 := json.Unmarshal([]byte(unwrapped), &args); jsonErr2 == nil {
+					// Successfully parsed
+				} else {
+					// Still not JSON, treat as a single string parameter
+					// For execute_command, use it as the command
+					if toolName == "execute_command" {
+						args = map[string]interface{}{
+							"command": unwrapped,
+						}
+					} else {
+						return nil, fmt.Errorf("failed to parse tool arguments: expected JSON object, got string: %s. Original error: %w", argsStr, err)
+					}
+				}
+			} else {
+				return nil, fmt.Errorf("failed to parse tool arguments: %w. Arguments received: %s", err, h.truncateString(argsStr, 100))
+			}
+		} else {
+			return nil, fmt.Errorf("failed to parse tool arguments: %w. Arguments received: %s", err, h.truncateString(argsStr, 100))
+		}
 	}
 
 	switch toolName {
@@ -39,21 +138,49 @@ func (h *ToolHandler) ExecuteTool(ctx context.Context, toolCall llm.ToolCall) (j
 		if !ok {
 			return nil, fmt.Errorf("invalid sql parameter")
 		}
-		
+
 		// Execute SQL - this does NOT print anything, only returns data
 		result, err := tool.ExecuteSQL(ctx, h.conn, sql)
 		if err != nil {
-			errorMsg := fmt.Sprintf(`{"error": "%s"}`, err.Error())
-			return json.RawMessage(errorMsg), nil
+			// Properly encode error message as JSON
+			// Include hint that LLM can check Skills for guidance and retry
+			errorMessage := err.Error()
+			errorJSON := map[string]interface{}{
+				"status": "error",
+				"error":  errorMessage,
+				"hint":   "Check available Skills for correct syntax or required parameters. You may retry with corrections (max 2 attempts).",
+			}
+			jsonData, jsonErr := json.Marshal(errorJSON)
+			if jsonErr != nil {
+				// Fallback if JSON encoding fails
+				errorMsg := fmt.Sprintf(`{"status":"error","error":"%s","hint":"Check available Skills for guidance and retry (max 2 attempts)"}`, strings.ReplaceAll(errorMessage, `"`, `\"`))
+				return json.RawMessage(errorMsg), nil
+			}
+			return json.RawMessage(jsonData), nil
 		}
 
 		// Convert result to JSON and return to LLM
 		// LLM will decide how to display this (via render_table or text description)
 		resultJSON := map[string]interface{}{
+			"status":    "success",
 			"columns":   result.Columns,
 			"rows":      result.Rows,
 			"row_count": len(result.Rows),
 		}
+		
+		// For DDL/DML operations (no data returned), add explicit completion message
+		if len(result.Rows) == 0 {
+			sqlUpper := strings.ToUpper(strings.TrimSpace(sql))
+			isDDL := strings.HasPrefix(sqlUpper, "CREATE") || strings.HasPrefix(sqlUpper, "ALTER") ||
+				strings.HasPrefix(sqlUpper, "DROP") || strings.HasPrefix(sqlUpper, "INSERT") ||
+				strings.HasPrefix(sqlUpper, "UPDATE") || strings.HasPrefix(sqlUpper, "DELETE") ||
+				strings.HasPrefix(sqlUpper, "CALL") || strings.HasPrefix(sqlUpper, "TRUNCATE")
+			
+			if isDDL {
+				resultJSON["message"] = "SQL executed successfully. Task completed."
+			}
+		}
+		
 		jsonData, err := json.Marshal(resultJSON)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal result: %w", err)
@@ -167,18 +294,79 @@ func (h *ToolHandler) ExecuteTool(ctx context.Context, toolCall llm.ToolCall) (j
 		return json.RawMessage(jsonData), nil
 
 	default:
-		return nil, fmt.Errorf("unknown tool: %s", toolName)
+		// Try built-in tools
+		result, err := builtin.ExecuteBuiltinTool(ctx, toolName, args, h.conn)
+		if err != nil {
+			// Check if it's truly an unknown tool or an execution error
+			if strings.Contains(err.Error(), "unknown built-in tool") {
+				return nil, fmt.Errorf("unknown tool: %s", toolName)
+			}
+			// For execution errors, encode as JSON similar to execute_sql errors
+			errorMessage := err.Error()
+			errorJSON := map[string]interface{}{
+				"status": "error",
+				"error":  errorMessage,
+			}
+			jsonData, jsonErr := json.Marshal(errorJSON)
+			if jsonErr != nil {
+				// Fallback if JSON encoding fails
+				errorMsg := fmt.Sprintf(`{"status":"error","error":"%s"}`, strings.ReplaceAll(errorMessage, `"`, `\"`))
+				return json.RawMessage(errorMsg), nil
+			}
+			return json.RawMessage(jsonData), nil
+		}
+		// Convert result to JSON
+		// For execute_command, add explicit status field based on exit_code
+		if toolName == "execute_command" {
+			// First marshal to JSON, then unmarshal to map to add status
+			jsonBytes, err := json.Marshal(result)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal result: %w", err)
+			}
+			
+			var resultMap map[string]interface{}
+			if err := json.Unmarshal(jsonBytes, &resultMap); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal result: %w", err)
+			}
+			
+			// Check exit_code to determine status (simple rule: 0 = success, non-zero = error)
+			exitCode := 0
+			if ec, ok := resultMap["exit_code"].(float64); ok {
+				exitCode = int(ec)
+			} else if ec, ok := resultMap["exit_code"].(int); ok {
+				exitCode = ec
+			}
+			
+			// Add explicit status field based on exit_code
+			if exitCode == 0 {
+				resultMap["status"] = "success"
+			} else {
+				resultMap["status"] = "error"
+				resultMap["error"] = fmt.Sprintf("Command exited with code %d", exitCode)
+			}
+			
+			// Marshal back to JSON
+			jsonData, err := json.Marshal(resultMap)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal result: %w", err)
+			}
+			return json.RawMessage(jsonData), nil
+		}
+		
+		// For other tools, convert result to JSON as-is
+		resultJSON, err := json.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal result: %w", err)
+		}
+		return json.RawMessage(resultJSON), nil
 	}
 }
 
 // HandleToolCallLoop handles the complete tool calling loop
 // Returns the final response content and any query result
 func (h *ToolHandler) HandleToolCallLoop(ctx context.Context, llmClient *llm.Client, userInput string, schemaContext string, databaseType string, conversationHistory []llm.ChatMessage, tools []llm.Function) (string, *db.QueryResult, error) {
-	// Build initial messages
-	messages := []interface{}{
-		llm.ChatMessage{
-			Role: "system",
-			Content: fmt.Sprintf(`You are a helpful AI assistant for database queries. You can have natural conversations with users, or help them query databases using available tools.
+	// Base system prompt
+	baseSystemPrompt := fmt.Sprintf(`You are a helpful AI assistant for database queries. You can have natural conversations with users, or help them query databases using available tools.
 
 IMPORTANT CONTEXT:
 - Database engine type: %s (this is the database system type like MySQL/PostgreSQL/seekdb, NOT a schema or database name)
@@ -195,7 +383,15 @@ CRITICAL RULES FOR SQL GENERATION:
 5. For MySQL/seekdb: Use SHOW TABLES; or SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();
 6. For PostgreSQL: Use SELECT tablename FROM pg_tables WHERE schemaname = 'public'; or SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';
 
-Use the available tools to help users query the database. Follow this flow:
+Use the available tools to help users. Available tools include:
+- execute_sql: Execute SQL queries against the database
+- execute_command: Execute shell commands (for installation, setup, system operations)
+- http_request: Make HTTP requests
+- file_operations: Read/write files
+- render_table: Format query results as a table
+- render_chart: Format query results as a chart
+
+For database queries, follow this flow:
 1. Use execute_sql to query the database (this returns data, does NOT display it)
 2. Decide how to present results:
    - Default: use render_table to format results as a table string when there are multiple rows/columns.
@@ -203,7 +399,104 @@ Use the available tools to help users query the database. Follow this flow:
    - Summarize in text only when the user explicitly requests a summary or when data is trivial (e.g., a single value).
 3. If you call render_table or render_chart, include the returned output string in your final response.
 
-Remember: tools return data; you decide what to show in the final response.`, databaseType, schemaContext, databaseType, databaseType, databaseType),
+For system operations (installation, setup, configuration):
+- When user requests an ACTION (install, setup, configure, run, etc.), use execute_command to execute the commands from Skills.
+- Execute commands step by step, checking results before proceeding to the next step.
+- Do NOT just show commands to the user - EXECUTE them automatically.
+- Only show commands if execution fails and you need to explain the error, or if user explicitly asks for instructions.
+
+IMPORTANT: Commands that require manual execution:
+- Commands requiring sudo privileges: If execute_command returns an error indicating the command requires sudo, inform the user that they need to run it manually in their terminal with sudo privileges.
+- Interactive commands: Some commands require interactive input (like mysql_secure_installation, passwd, etc.) and cannot be executed non-interactively.
+- If execute_command returns an error indicating the command requires interactive input or sudo, inform the user that this command needs to be run manually in their terminal.
+- For these commands, suggest alternatives when possible:
+  * For mysql_secure_installation: Guide the user to run it manually, or use SQL commands to secure MySQL instead.
+  * For sudo commands: Explain that they need to be run manually with sudo privileges.
+  * For other interactive commands: Explain that they need to be run manually, or suggest non-interactive alternatives if available.
+
+How to interpret execute_command results:
+- The tool returns: exit_code (0 = success, non-zero = failure), stdout (standard output), stderr (standard error), and status ("success" or "error").
+- Read exit_code, stdout, and stderr to understand what happened.
+- Based on the command output and exit_code, decide the next step:
+  * If exit_code=0: Command succeeded. Read stdout/stderr to understand the result, then proceed accordingly.
+  * If exit_code!=0: Command failed. Read stdout/stderr for error details, then decide whether to retry, modify the command, or try a different approach.
+- Use your judgment to determine when a task is complete and when to stop or continue.
+
+When to stop tool calling and return final response:
+- Use your judgment to determine when a task is complete based on tool results and user's request.
+- For SQL queries: After execute_sql succeeds, decide whether to format results (render_table/render_chart) or summarize, then return final response.
+- For commands: After execute_command completes, read the output (stdout/stderr) and exit_code to understand the result, then decide next steps or complete the task.
+- If a tool fails, check the error details and decide whether to retry, modify, or report the error to the user.
+- Once the user's request is fulfilled or cannot be completed, return a final response and stop calling tools.
+
+Remember: Tools provide information (exit_code, stdout, stderr, status). You interpret this information and decide what to do next. Use your judgment to determine when tasks are complete.`, databaseType, schemaContext, databaseType, databaseType, databaseType)
+
+	// Match Skills to user query
+	var loadedSkills []*skills.Skill
+	if h.skillsManager != nil {
+		metadataList := h.skillsManager.GetMetadata()
+		if len(metadataList) > 0 {
+			matchedMetadata := h.matcher.Match(userInput, metadataList)
+			if len(matchedMetadata) > 0 {
+				// Load matched Skills
+				skillNames := make([]string, len(matchedMetadata))
+				for i, md := range matchedMetadata {
+					skillNames[i] = md.Name
+					// Set priority: matched Skills are relevant
+					h.skillsManager.SetPriority(md.Name, skills.PriorityRelevant)
+				}
+
+				loaded, err := h.skillsManager.LoadSkills(skillNames)
+				if err == nil {
+					loadedSkills = loaded
+					// Set priority to active for loaded Skills
+					for _, skill := range loadedSkills {
+						h.skillsManager.SetPriority(skill.Name, skills.PriorityActive)
+					}
+					// Show which Skills were loaded
+					ui.ShowInfo(fmt.Sprintf("Loaded %d skill(s) for this query: %v", len(loadedSkills), skillNames))
+				} else {
+					ui.ShowWarning(fmt.Sprintf("Failed to load some skills: %v", err))
+				}
+			}
+		}
+	}
+
+	// Build system prompt with Skills
+	h.promptBuilder = prompt.NewBuilder(baseSystemPrompt)
+	systemPrompt := h.promptBuilder.BuildSystemPrompt(loadedSkills)
+
+	// Convert conversation history to strings for compression
+	historyStrings := make([]string, len(conversationHistory))
+	for i, msg := range conversationHistory {
+		historyStrings[i] = fmt.Sprintf("%s: %s", msg.Role, msg.Content)
+	}
+
+	// Compress prompt if needed
+	compressionResult, err := h.compressor.Compress(historyStrings, loadedSkills, systemPrompt, userInput)
+	if err == nil && compressionResult.Compressed {
+		// Rebuild conversation history from compressed version
+		conversationHistory = make([]llm.ChatMessage, 0, len(compressionResult.CompressedHistory))
+		for _, histStr := range compressionResult.CompressedHistory {
+			// Parse "role: content" format
+			parts := strings.SplitN(histStr, ": ", 2)
+			if len(parts) == 2 {
+				conversationHistory = append(conversationHistory, llm.ChatMessage{
+					Role:    parts[0],
+					Content: parts[1],
+				})
+			}
+		}
+		loadedSkills = compressionResult.RemainingSkills
+		// Rebuild system prompt with remaining Skills
+		systemPrompt = h.promptBuilder.BuildSystemPrompt(loadedSkills)
+	}
+
+	// Build initial messages
+	messages := []interface{}{
+		llm.ChatMessage{
+			Role:    "system",
+			Content: systemPrompt,
 		},
 	}
 
@@ -222,9 +515,11 @@ Remember: tools return data; you decide what to show in the final response.`, da
 	var lastFormattedOutput string
 	maxIterations := 10 // Prevent infinite loops
 
-	for i := 0; i < maxIterations; i++ {
-		// Call LLM
+		for i := 0; i < maxIterations; i++ {
+		// Call LLM - show "Thinking..." while LLM is processing
+		stopThinking := ui.ShowLoading("Thinking...")
 		response, err := llmClient.ChatWithTools(ctx, messages, tools)
+		stopThinking()
 		if err != nil {
 			return "", nil, fmt.Errorf("LLM call failed: %w", err)
 		}
@@ -271,8 +566,8 @@ Remember: tools return data; you decide what to show in the final response.`, da
 					errorMsg := fmt.Sprintf(`{"error": "%s"}`, err.Error())
 					toolResult := json.RawMessage(errorMsg)
 					toolMsg := map[string]interface{}{
-						"role":        "tool",
-						"content":     string(toolResult),
+						"role":         "tool",
+						"content":      string(toolResult),
 						"tool_call_id": toolCall.ID,
 					}
 					messages = append(messages, toolMsg)
@@ -286,8 +581,8 @@ Remember: tools return data; you decide what to show in the final response.`, da
 					errorMsg := fmt.Sprintf(`{"error": "%s"}`, err.Error())
 					toolResult := json.RawMessage(errorMsg)
 					toolMsg := map[string]interface{}{
-						"role":        "tool",
-						"content":     string(toolResult),
+						"role":         "tool",
+						"content":      string(toolResult),
 						"tool_call_id": toolCall.ID,
 					}
 					messages = append(messages, toolMsg)
@@ -306,8 +601,8 @@ Remember: tools return data; you decide what to show in the final response.`, da
 					ui.ShowWarning("Query execution cancelled.")
 					toolResult := json.RawMessage(`{"status":"cancelled","message":"query execution cancelled by user"}`)
 					toolMsg := map[string]interface{}{
-						"role":        "tool",
-						"content":     string(toolResult),
+						"role":         "tool",
+						"content":      string(toolResult),
 						"tool_call_id": toolCall.ID,
 					}
 					messages = append(messages, toolMsg)
@@ -317,8 +612,8 @@ Remember: tools return data; you decide what to show in the final response.`, da
 					ui.ShowWarning("Query execution cancelled.")
 					toolResult := json.RawMessage(`{"status":"cancelled","message":"query execution cancelled by user"}`)
 					toolMsg := map[string]interface{}{
-						"role":        "tool",
-						"content":     string(toolResult),
+						"role":         "tool",
+						"content":      string(toolResult),
 						"tool_call_id": toolCall.ID,
 					}
 					messages = append(messages, toolMsg)
@@ -326,14 +621,39 @@ Remember: tools return data; you decide what to show in the final response.`, da
 				}
 			}
 
-			ui.ShowInfo(fmt.Sprintf("Calling tool [%s]...", toolCall.Function.Name))
+			// Format and display tool call with arguments
+			toolCallDisplay := h.formatToolCall(toolCall)
+			ui.ShowInfo(toolCallDisplay)
+			// Show "Waiting..." while tool is executing (especially for commands that take time)
+			waitingMsg := "Waiting..."
+			if toolCall.Function.Name == "execute_command" {
+				waitingMsg = "Waiting for command to complete..."
+			} else if toolCall.Function.Name == "execute_sql" {
+				waitingMsg = "Executing SQL..."
+			} else if toolCall.Function.Name == "http_request" {
+				waitingMsg = "Waiting for HTTP response..."
+			}
+			stopWaiting := ui.ShowLoading(waitingMsg)
 			toolResult, err := h.ExecuteTool(ctx, toolCall)
+			stopWaiting()
 			if err != nil {
-				errorMsg := fmt.Sprintf(`{"error": "%s"}`, err.Error())
+				// Format error message for LLM
+				errorMsg := fmt.Sprintf(`{"error": "%s"}`, strings.ReplaceAll(err.Error(), `"`, `\"`))
 				toolResult = json.RawMessage(errorMsg)
-				ui.ShowError(fmt.Sprintf("Tool [%s] failed: %v", toolCall.Function.Name, err))
+				// Show user-friendly error message
+				ui.ShowError(fmt.Sprintf("Tool [%s] failed: %s", toolCall.Function.Name, err.Error()))
 			} else {
-				ui.ShowSuccess(fmt.Sprintf("Tool [%s] executed successfully", toolCall.Function.Name))
+				// Check if tool result contains an error (even if ExecuteTool returned nil error)
+				var resultData map[string]interface{}
+				if jsonErr := json.Unmarshal(toolResult, &resultData); jsonErr == nil {
+					if errorMsg, hasError := resultData["error"].(string); hasError && errorMsg != "" {
+						ui.ShowError(fmt.Sprintf("Tool [%s] failed: %s", toolCall.Function.Name, errorMsg))
+					} else {
+						ui.ShowSuccess(fmt.Sprintf("Tool [%s] executed successfully", toolCall.Function.Name))
+					}
+				} else {
+					ui.ShowSuccess(fmt.Sprintf("Tool [%s] executed successfully", toolCall.Function.Name))
+				}
 			}
 
 			// Store query result if it's execute_sql
@@ -379,8 +699,8 @@ Remember: tools return data; you decide what to show in the final response.`, da
 			// Step 5: Add tool result message back to LLM
 			// LLM will decide next step based on tool results
 			toolMsg := map[string]interface{}{
-				"role":        "tool",
-				"content":     string(toolResult), // Convert json.RawMessage to string
+				"role":         "tool",
+				"content":      string(toolResult), // Convert json.RawMessage to string
 				"tool_call_id": toolCall.ID,
 			}
 			messages = append(messages, toolMsg)

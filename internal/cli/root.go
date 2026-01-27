@@ -12,6 +12,11 @@ import (
 // Run starts the main CLI application
 // sessionFile is optional path to a session file to restore
 func Run(sessionFile string) error {
+	// Ensure directory structure exists
+	if err := config.EnsureDirectoryStructure(); err != nil {
+		return fmt.Errorf("failed to create config directory structure: %w", err)
+	}
+
 	// Check for first-run and run wizard if needed
 	exists, err := config.Exists()
 	if err != nil {

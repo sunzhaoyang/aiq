@@ -12,6 +12,7 @@ import (
 	"github.com/aiq/aiq/internal/db"
 	"github.com/aiq/aiq/internal/llm"
 	"github.com/aiq/aiq/internal/session"
+	"github.com/aiq/aiq/internal/skills"
 	"github.com/aiq/aiq/internal/source"
 	"github.com/aiq/aiq/internal/tool"
 	"github.com/aiq/aiq/internal/ui"
@@ -111,6 +112,21 @@ func RunSQLMode(sessionFile string) error {
 	}
 	defer conn.Close()
 
+	// Initialize Skills manager
+	skillsManager := skills.NewManager()
+	if err := skillsManager.Initialize(); err != nil {
+		ui.ShowWarning(fmt.Sprintf("Failed to initialize Skills manager: %v. Continuing without Skills.", err))
+	} else {
+		// Show Skills loading status
+		metadata := skillsManager.GetMetadata()
+		if len(metadata) > 0 {
+			ui.ShowInfo(fmt.Sprintf("Loaded %d skill(s) metadata (progressive loading enabled)", len(metadata)))
+			for _, md := range metadata {
+				ui.ShowInfo(fmt.Sprintf("  - %s: %s", md.Name, md.Description))
+			}
+		}
+	}
+
 	// Create LLM client
 	llmClient := llm.NewClient(cfg.LLM.URL, cfg.LLM.APIKey, cfg.LLM.Model)
 
@@ -125,6 +141,16 @@ func RunSQLMode(sessionFile string) error {
 	ui.ShowInfo(fmt.Sprintf("Entering chat mode. Source: %s (%s/%s:%d/%s)", src.Name, src.Type, src.Host, src.Port, src.Database))
 	if len(sess.Messages) > 0 {
 		ui.ShowInfo(fmt.Sprintf("Conversation history: %d messages", len(sess.Messages)))
+	}
+	// Show Skills status
+	metadata := skillsManager.GetMetadata()
+	if len(metadata) > 0 {
+		ui.ShowInfo(fmt.Sprintf("Skills: %d skill(s) available (progressive loading enabled)", len(metadata)))
+		for _, md := range metadata {
+			ui.ShowInfo(fmt.Sprintf("  - %s: %s", md.Name, md.Description))
+		}
+	} else {
+		ui.ShowInfo("Skills: No skills found in ~/.aiqconfig/skills/")
 	}
 	ui.ShowInfo("Chat freely or ask database questions. Use '/history' to view conversation, '/clear' to clear history, or 'exit' to return to main menu.")
 	fmt.Println()
@@ -348,16 +374,15 @@ func RunSQLMode(sessionFile string) error {
 			schemaContext = fmt.Sprintf("Currently connected to database: %s\n\n%s", src.Database, schemaContext)
 		}
 
-		// Get tool definitions
-		tools := tool.GetLLMFunctions()
+		// Get tool definitions (including built-in tools)
+		tools := tool.GetLLMFunctionsWithBuiltin(conn)
 
 		// Create tool handler
-		toolHandler := NewToolHandler(conn)
+		toolHandler := NewToolHandler(conn, skillsManager)
 
 		// Use tool calling loop - LLM decides which tools to call
-		stopLoading := ui.ShowLoading("Thinking...")
+		// Note: "Thinking..." and "Waiting..." messages are handled inside HandleToolCallLoop
 		finalResponse, queryResult, err := toolHandler.HandleToolCallLoop(ctx, llmClient, query, schemaContext, src.GetDatabaseType(), conversationHistory, tools)
-		stopLoading()
 
 		if err != nil {
 			ui.ShowError(fmt.Sprintf("Failed to process request: %v", err))

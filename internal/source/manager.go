@@ -3,22 +3,15 @@ package source
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"gopkg.in/yaml.v3"
-)
 
-const (
-	sourcesFile = "sources.yaml"
+	"github.com/aiq/aiq/internal/config"
 )
 
 // GetSourcesPath returns the full path to the sources file
 func GetSourcesPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
-	}
-	return filepath.Join(homeDir, ".aiqconfig", sourcesFile), nil
+	return config.GetSourcesFilePath()
 }
 
 // LoadSources loads all sources from file
@@ -48,15 +41,14 @@ func LoadSources() ([]*Source, error) {
 
 // SaveSources saves sources to file
 func SaveSources(sources []*Source) error {
-	sourcesPath, err := GetSourcesPath()
-	if err != nil {
+	// Ensure directory structure exists
+	if err := config.EnsureDirectoryStructure(); err != nil {
 		return err
 	}
 
-	// Create config directory if it doesn't exist
-	configDir := filepath.Dir(sourcesPath)
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
+	sourcesPath, err := GetSourcesPath()
+	if err != nil {
+		return err
 	}
 
 	data, err := yaml.Marshal(sources)

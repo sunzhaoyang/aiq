@@ -1,10 +1,19 @@
 package tool
 
-import "github.com/aiq/aiq/internal/llm"
+import (
+	"github.com/aiq/aiq/internal/db"
+	"github.com/aiq/aiq/internal/llm"
+	"github.com/aiq/aiq/internal/tool/builtin"
+)
 
 // GetLLMFunctions converts tool definitions to LLM Function format
 func GetLLMFunctions() []llm.Function {
-	return []llm.Function{
+	return GetLLMFunctionsWithBuiltin(nil)
+}
+
+// GetLLMFunctionsWithBuiltin returns LLM functions including built-in tools
+func GetLLMFunctionsWithBuiltin(dbConn *db.Connection) []llm.Function {
+	tools := []llm.Function{
 		{
 			Name:        "execute_sql",
 			Description: "Execute a SQL query against the database and return the results. Use this when the user wants to query the database.",
@@ -65,4 +74,18 @@ func GetLLMFunctions() []llm.Function {
 			},
 		},
 	}
+
+	// Add built-in tools
+	builtinDefs := builtin.GetBuiltinToolDefinitions(dbConn)
+	for _, bt := range builtinDefs {
+		if fn, ok := bt["function"].(map[string]interface{}); ok {
+			tools = append(tools, llm.Function{
+				Name:        fn["name"].(string),
+				Description: fn["description"].(string),
+				Parameters:  fn["parameters"].(map[string]interface{}),
+			})
+		}
+	}
+
+	return tools
 }
