@@ -37,16 +37,52 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
+// Function represents a tool/function definition for LLM
+type Function struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
+}
+
+// ToolCall represents a tool call request from LLM
+type ToolCall struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"` // "function"
+	Function  struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"` // JSON string that needs to be parsed
+	} `json:"function"`
+}
+
+// ParseArguments parses the arguments JSON string into a map
+func (tc *ToolCall) ParseArguments() (map[string]interface{}, error) {
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		return nil, fmt.Errorf("failed to parse arguments: %w", err)
+	}
+	return args, nil
+}
+
 // ChatRequest represents a chat API request
 type ChatRequest struct {
-	Model    string        `json:"model"`
-	Messages []ChatMessage `json:"messages"`
+	Model       string        `json:"model"`
+	Messages    []interface{} `json:"messages"` // Can be ChatMessage or map[string]interface{} for tool messages
+	Tools       []struct {
+		Type     string   `json:"type"`
+		Function Function `json:"function"`
+	} `json:"tools,omitempty"`
+	ToolChoice interface{} `json:"tool_choice,omitempty"` // "auto", "none", or {"type": "function", "function": {"name": "..."}}
 }
 
 // ChatResponse represents a chat API response
 type ChatResponse struct {
 	Choices []struct {
-		Message ChatMessage `json:"message"`
+		Message struct {
+			Role      string     `json:"role"`
+			Content   string     `json:"content"`
+			ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"` // "stop", "tool_calls", etc.
 	} `json:"choices"`
 	Error *struct {
 		Message string `json:"message"`
@@ -54,24 +90,335 @@ type ChatResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// TranslateToSQL translates natural language to SQL using LLM
-func (c *Client) TranslateToSQL(ctx context.Context, naturalLanguage string, schemaContext string, databaseType string) (string, error) {
-	// Build prompt
-	prompt := buildSQLPrompt(naturalLanguage, schemaContext, databaseType)
+// ChatResponseType indicates the type of response from LLM
+type ChatResponseType int
+
+const (
+	ChatResponseTypeText ChatResponseType = iota // Regular text response
+	ChatResponseTypeSQL                          // SQL query response
+)
+
+// ChatResponse represents a chat response with type
+type ChatResponseWithType struct {
+	Type    ChatResponseType
+	Content string
+}
+
+// Chat handles general conversation and can return either text or SQL
+// It intelligently determines if the user wants SQL or just wants to chat
+func (c *Client) Chat(ctx context.Context, userInput string, schemaContext string, databaseType string, conversationHistory []ChatMessage) (*ChatResponseWithType, error) {
+	// Build system message that allows both conversation and SQL generation
+	systemMessage := fmt.Sprintf(`You are a helpful AI assistant for database queries. You can have natural conversations with users, or help them generate SQL queries.
+
+When the user asks a question that requires a database query, respond with ONLY the SQL query (no explanations, no markdown code blocks, just the SQL).
+When the user is just chatting (greetings, questions about how to use the tool, etc.), respond naturally as a helpful assistant.
+
+IMPORTANT CONTEXT:
+- Database engine type: %s (this is the database system type like MySQL/PostgreSQL/seekdb, NOT a schema or database name)
+- Current database connection information is provided below
+
+Database connection and schema information:
+%s
+
+CRITICAL RULES FOR SQL GENERATION:
+1. Database type "%s" is the ENGINE TYPE (like MySQL, PostgreSQL, seekdb), NOT a database name or schema name
+2. When user asks "show tables" or "list tables", generate: SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() OR use SHOW TABLES (for MySQL/seekdb)
+3. NEVER use the database engine type (like "%s") as a schema name in WHERE table_schema = '%s'
+4. Always use the actual database name from the connection context, or use DATABASE() function to get current database
+5. For MySQL/seekdb: Use SHOW TABLES; or SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();
+6. For PostgreSQL: Use SELECT tablename FROM pg_tables WHERE schemaname = 'public'; or SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';
+
+Remember: If the user wants SQL, return ONLY the SQL query. If it's just conversation, respond naturally.`, databaseType, schemaContext, databaseType, databaseType, databaseType)
+
+	// Build messages list
+	messages := make([]ChatMessage, 0)
+	
+	// System message is always first
+	messages = append(messages, ChatMessage{
+		Role:    "system",
+		Content: systemMessage,
+	})
+	
+	// Add conversation history if provided
+	if conversationHistory != nil && len(conversationHistory) > 0 {
+		messages = append(messages, conversationHistory...)
+	}
+	
+	// Current query is always last
+	messages = append(messages, ChatMessage{
+		Role:    "user",
+		Content: userInput,
+	})
+
+	// Convert messages to []interface{}
+	messagesInterface := make([]interface{}, len(messages))
+	for i, msg := range messages {
+		messagesInterface[i] = msg
+	}
 
 	// Create request
 	reqBody := ChatRequest{
-		Model: c.model,
-		Messages: []ChatMessage{
-			{
-				Role:    "system",
-				Content: "You are a SQL expert. Translate natural language questions into precise SQL queries. Only return the SQL query, no explanations.",
-			},
-			{
-				Role:    "user",
-				Content: prompt,
-			},
-		},
+		Model:    c.model,
+		Messages: messagesInterface,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Build the full API URL
+	apiURL := c.buildAPIURL()
+	
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	// Execute request with retry
+	var resp *http.Response
+	maxRetries := 3
+	for i := 0; i < maxRetries; i++ {
+		resp, err = c.client.Do(req)
+		if err == nil {
+			break
+		}
+		if i < maxRetries-1 {
+			time.Sleep(time.Duration(i+1) * time.Second)
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("request failed after retries: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response
+	var chatResp struct {
+		Choices []struct {
+			Message struct {
+				Role      string     `json:"role"`
+				Content   string     `json:"content"`
+				ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+		Error *struct {
+			Message string `json:"message"`
+			Type     string `json:"type"`
+		} `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(body, &chatResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Check for API errors
+	if chatResp.Error != nil {
+		return nil, fmt.Errorf("API error: %s (type: %s)", chatResp.Error.Message, chatResp.Error.Type)
+	}
+
+	// Extract response
+	if len(chatResp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	content := chatResp.Choices[0].Message.Content
+	if content == "" {
+		return nil, fmt.Errorf("empty content in response")
+	}
+
+	// Determine if response is SQL or text
+	// Check if content looks like SQL (contains SELECT, INSERT, UPDATE, DELETE, SHOW, etc.)
+	contentUpper := strings.ToUpper(strings.TrimSpace(content))
+	isSQL := strings.HasPrefix(contentUpper, "SELECT") ||
+		strings.HasPrefix(contentUpper, "INSERT") ||
+		strings.HasPrefix(contentUpper, "UPDATE") ||
+		strings.HasPrefix(contentUpper, "DELETE") ||
+		strings.HasPrefix(contentUpper, "CREATE") ||
+		strings.HasPrefix(contentUpper, "ALTER") ||
+		strings.HasPrefix(contentUpper, "DROP") ||
+		strings.HasPrefix(contentUpper, "SHOW") ||
+		strings.HasPrefix(contentUpper, "DESCRIBE") ||
+		strings.HasPrefix(contentUpper, "DESC") ||
+		strings.HasPrefix(contentUpper, "EXPLAIN") ||
+		strings.Contains(contentUpper, " FROM ") ||
+		strings.Contains(contentUpper, " WHERE ")
+
+	if isSQL {
+		// Clean SQL: remove markdown code block markers if present
+		sql := cleanSQL(content)
+		return &ChatResponseWithType{
+			Type:    ChatResponseTypeSQL,
+			Content: sql,
+		}, nil
+	}
+
+	// Regular text response
+	return &ChatResponseWithType{
+		Type:    ChatResponseTypeText,
+		Content: content,
+	}, nil
+}
+
+// ChatWithTools handles conversation with tool support
+// messages can include ChatMessage or map[string]interface{} for tool messages
+func (c *Client) ChatWithTools(ctx context.Context, messages []interface{}, tools []Function) (*ChatResponse, error) {
+
+	// Build tools array for request
+	toolsArray := make([]struct {
+		Type     string   `json:"type"`
+		Function Function `json:"function"`
+	}, len(tools))
+	for i, tool := range tools {
+		toolsArray[i] = struct {
+			Type     string   `json:"type"`
+			Function Function `json:"function"`
+		}{
+			Type:     "function",
+			Function: tool,
+		}
+	}
+
+	// Create request
+	reqBody := ChatRequest{
+		Model:       c.model,
+		Messages:    messages,
+		Tools:       toolsArray,
+		ToolChoice:  "auto", // Let LLM decide when to use tools
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Build the full API URL
+	apiURL := c.buildAPIURL()
+	
+	// Create HTTP request
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	// Execute request with retry
+	var resp *http.Response
+	maxRetries := 3
+	for i := 0; i < maxRetries; i++ {
+		resp, err = c.client.Do(req)
+		if err == nil {
+			break
+		}
+		if i < maxRetries-1 {
+			time.Sleep(time.Duration(i+1) * time.Second)
+		}
+	}
+	if err != nil {
+		return nil, fmt.Errorf("request failed after retries: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Parse response
+	var chatResp struct {
+		Choices []struct {
+			Message struct {
+				Role      string     `json:"role"`
+				Content   string     `json:"content"`
+				ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+		Error *struct {
+			Message string `json:"message"`
+			Type     string `json:"type"`
+		} `json:"error,omitempty"`
+	}
+	if err := json.Unmarshal(body, &chatResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	// Check for API errors
+	if chatResp.Error != nil {
+		return nil, fmt.Errorf("API error: %s (type: %s)", chatResp.Error.Message, chatResp.Error.Type)
+	}
+
+	// Extract response
+	if len(chatResp.Choices) == 0 {
+		return nil, fmt.Errorf("no choices in response")
+	}
+
+	// Return the response as-is, including tool_calls
+	// Let the caller handle tool_calls
+	return &ChatResponse{
+		Choices: chatResp.Choices,
+	}, nil
+}
+
+// TranslateToSQL translates natural language to SQL using LLM
+// conversationHistory can be nil or empty for backward compatibility
+// Deprecated: Use Chat() instead for more flexible conversation handling
+func (c *Client) TranslateToSQL(ctx context.Context, naturalLanguage string, schemaContext string, databaseType string, conversationHistory []ChatMessage) (string, error) {
+	// Build prompt
+	prompt := buildSQLPrompt(naturalLanguage, schemaContext, databaseType)
+
+	// Build messages list
+	messages := make([]ChatMessage, 0)
+	
+	// System message is always first
+	messages = append(messages, ChatMessage{
+		Role:    "system",
+		Content: "You are a SQL expert. Translate natural language questions into precise SQL queries. Only return the SQL query, no explanations.",
+	})
+	
+	// Add conversation history if provided
+	if conversationHistory != nil && len(conversationHistory) > 0 {
+		messages = append(messages, conversationHistory...)
+	}
+	
+	// Current query is always last
+	messages = append(messages, ChatMessage{
+		Role:    "user",
+		Content: prompt,
+	})
+
+	// Convert messages to []interface{}
+	messagesInterface := make([]interface{}, len(messages))
+	for i, msg := range messages {
+		messagesInterface[i] = msg
+	}
+
+	// Create request
+	reqBody := ChatRequest{
+		Model:    c.model,
+		Messages: messagesInterface,
 	}
 
 	jsonData, err := json.Marshal(reqBody)

@@ -10,7 +10,8 @@ import (
 )
 
 // Run starts the main CLI application
-func Run() error {
+// sessionFile is optional path to a session file to restore
+func Run(sessionFile string) error {
 	// Check for first-run and run wizard if needed
 	exists, err := config.Exists()
 	if err != nil {
@@ -67,9 +68,11 @@ func Run() error {
 				ui.ShowError(err.Error())
 			}
 		case "chat":
-			if err := sql.RunSQLMode(); err != nil {
+			if err := sql.RunSQLMode(sessionFile); err != nil {
 				ui.ShowError(err.Error())
 			}
+			// Clear sessionFile after first use (only restore once)
+			sessionFile = ""
 		case "exit":
 			ui.ShowInfo("Goodbye!")
 			os.Exit(0)

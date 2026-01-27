@@ -11,37 +11,91 @@ import (
 	"github.com/aiq/aiq/internal/config"
 	"github.com/aiq/aiq/internal/db"
 	"github.com/aiq/aiq/internal/llm"
+	"github.com/aiq/aiq/internal/session"
 	"github.com/aiq/aiq/internal/source"
+	"github.com/aiq/aiq/internal/tool"
 	"github.com/aiq/aiq/internal/ui"
 )
 
 // RunSQLMode runs the SQL interactive mode
-func RunSQLMode() error {
-	// Select source
-	sources, err := source.LoadSources()
-	if err != nil {
-		return fmt.Errorf("failed to load sources: %w", err)
+// sessionFile is optional path to a session file to restore
+func RunSQLMode(sessionFile string) error {
+	var sess *session.Session
+	var src *source.Source
+	var sourceName string
+
+	// Restore session if provided
+	if sessionFile != "" {
+		loadedSession, err := session.LoadSession(sessionFile)
+		if err != nil {
+			ui.ShowWarning(fmt.Sprintf("Failed to load session: %v", err))
+			ui.ShowInfo("Starting with a new session.")
+		} else {
+			sess = loadedSession
+			sourceName = sess.Metadata.DataSource
+			ui.ShowInfo(fmt.Sprintf("Restored session from %s", sessionFile))
+			ui.ShowInfo(fmt.Sprintf("Conversation history: %d messages", len(sess.Messages)))
+		}
 	}
 
-	if len(sources) == 0 {
-		return fmt.Errorf("no data sources configured. Please add a source first")
-	}
+	// Select source (if not restored from session)
+	if sess == nil || sourceName == "" {
+		sources, err := source.LoadSources()
+		if err != nil {
+			return fmt.Errorf("failed to load sources: %w", err)
+		}
 
-	items := make([]ui.MenuItem, 0, len(sources))
-	for _, s := range sources {
-		label := fmt.Sprintf("%s (%s/%s:%d/%s)", s.Name, s.Type, s.Host, s.Port, s.Database)
-		items = append(items, ui.MenuItem{Label: label, Value: s.Name})
-	}
+		if len(sources) == 0 {
+			return fmt.Errorf("no data sources configured. Please add a source first")
+		}
 
-	sourceName, err := ui.ShowMenu("Select Data Source", items)
-	if err != nil {
-		return err
+		items := make([]ui.MenuItem, 0, len(sources))
+		for _, s := range sources {
+			label := fmt.Sprintf("%s (%s/%s:%d/%s)", s.Name, s.Type, s.Host, s.Port, s.Database)
+			items = append(items, ui.MenuItem{Label: label, Value: s.Name})
+		}
+
+		sourceName, err = ui.ShowMenu("Select Data Source", items)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Load source
-	src, err := source.GetSource(sourceName)
+	var err error
+	src, err = source.GetSource(sourceName)
 	if err != nil {
-		return fmt.Errorf("failed to load source: %w", err)
+		// If source from session doesn't exist, prompt for new one
+		if sess != nil {
+			ui.ShowWarning(fmt.Sprintf("Data source '%s' from session no longer exists.", sourceName))
+			sources, loadErr := source.LoadSources()
+			if loadErr != nil {
+				return fmt.Errorf("failed to load sources: %w", loadErr)
+			}
+			if len(sources) == 0 {
+				return fmt.Errorf("no data sources configured. Please add a source first")
+			}
+			items := make([]ui.MenuItem, 0, len(sources))
+			for _, s := range sources {
+				label := fmt.Sprintf("%s (%s/%s:%d/%s)", s.Name, s.Type, s.Host, s.Port, s.Database)
+				items = append(items, ui.MenuItem{Label: label, Value: s.Name})
+			}
+			sourceName, err = ui.ShowMenu("Select Data Source", items)
+			if err != nil {
+				return err
+			}
+			src, err = source.GetSource(sourceName)
+			if err != nil {
+				return fmt.Errorf("failed to load source: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to load source: %w", err)
+		}
+	}
+
+	// Create new session if not restored
+	if sess == nil {
+		sess = session.NewSession(sourceName, string(src.Type))
 	}
 
 	// Load config
@@ -69,8 +123,16 @@ func RunSQLMode() error {
 	}
 
 	ui.ShowInfo(fmt.Sprintf("Entering chat mode. Source: %s (%s/%s:%d/%s)", src.Name, src.Type, src.Host, src.Port, src.Database))
-	ui.ShowInfo("Type your question in natural language, or 'exit' to return to main menu.")
+	if len(sess.Messages) > 0 {
+		ui.ShowInfo(fmt.Sprintf("Conversation history: %d messages", len(sess.Messages)))
+	}
+	ui.ShowInfo("Chat freely or ask database questions. Use '/history' to view conversation, '/clear' to clear history, or 'exit' to return to main menu.")
 	fmt.Println()
+
+	// Store last query result for view switching
+	var lastQueryResult *db.QueryResult
+	// Store last generated SQL for execute command
+	var lastGeneratedSQL string
 
 	// Use readline for better Unicode/Chinese character support
 	rl, err := readline.NewEx(&readline.Config{
@@ -95,6 +157,19 @@ func RunSQLMode() error {
 			}
 			// EOF (Ctrl+D) - exit chat mode
 			fmt.Println()
+			// Save session before exiting
+			timestamp := session.GetTimestamp()
+			sessionPath, err := session.GetSessionFilePath(timestamp)
+			if err != nil {
+				ui.ShowWarning(fmt.Sprintf("Failed to generate session path: %v", err))
+			} else {
+				if err := session.SaveSession(sess, sessionPath); err != nil {
+					ui.ShowWarning(fmt.Sprintf("Failed to save session: %v", err))
+				} else {
+					ui.ShowInfo(fmt.Sprintf("Current session saved to %s", sessionPath))
+					ui.ShowInfo(fmt.Sprintf("Run 'aiq -s %s' to continue.", sessionPath))
+				}
+			}
 			ui.ShowInfo("Exiting chat mode (EOF).")
 			return nil
 		}
@@ -109,91 +184,201 @@ func RunSQLMode() error {
 		// Use the line directly as query (readline handles multi-byte characters correctly)
 		query := line
 
-		// Handle exit command
+		// Handle special commands
 		if strings.ToLower(query) == "exit" || strings.ToLower(query) == "back" {
+			// Save session before exiting
+			timestamp := session.GetTimestamp()
+			sessionPath, err := session.GetSessionFilePath(timestamp)
+			if err != nil {
+				ui.ShowWarning(fmt.Sprintf("Failed to generate session path: %v", err))
+			} else {
+				if err := session.SaveSession(sess, sessionPath); err != nil {
+					ui.ShowWarning(fmt.Sprintf("Failed to save session: %v", err))
+				} else {
+					ui.ShowInfo(fmt.Sprintf("Current session saved to %s", sessionPath))
+					ui.ShowInfo(fmt.Sprintf("Run 'aiq -s %s' to continue.", sessionPath))
+				}
+			}
 			return nil
 		}
 
-		// Translate natural language to SQL
-		stopLoading := ui.ShowLoading("Translating to SQL...")
-		sqlQuery, err := llmClient.TranslateToSQL(ctx, query, schema.FormatSchema(), src.GetDatabaseType())
+		// Handle /history command
+		if strings.ToLower(query) == "/history" {
+			history := sess.GetHistory()
+			if len(history) == 0 {
+				ui.ShowInfo("No conversation history.")
+			} else {
+				fmt.Println()
+				ui.ShowInfo("Conversation History:")
+				fmt.Println()
+				for i, msg := range history {
+					roleLabel := "User"
+					if msg.Role == "assistant" {
+						roleLabel = "Assistant"
+					}
+					fmt.Printf("[%d] %s (%s):\n", i+1, roleLabel, msg.Timestamp.Format("15:04:05"))
+					if msg.Role == "assistant" {
+						fmt.Println(ui.HighlightSQL(msg.Content))
+					} else {
+						fmt.Println(msg.Content)
+					}
+					fmt.Println()
+				}
+			}
+			fmt.Println()
+			continue
+		}
+
+		// Handle /clear command
+		if strings.ToLower(query) == "/clear" {
+			confirm, err := ui.ShowConfirm("Clear conversation history?")
+			if err != nil {
+				fmt.Println()
+				continue
+			}
+			if confirm {
+				sess.ClearHistory()
+				ui.ShowInfo("Conversation history cleared.")
+			}
+			fmt.Println()
+			continue
+		}
+
+		// Handle execute command - execute last generated SQL
+		if strings.ToLower(query) == "execute" || strings.ToLower(query) == "/execute" {
+			if lastGeneratedSQL == "" {
+				ui.ShowWarning("No SQL query to execute. Please generate a query first.")
+				fmt.Println()
+				continue
+			}
+
+			// Execute the last generated SQL
+			stopLoading := ui.ShowLoading("Calling tool [execute_sql]...")
+			result, err := tool.ExecuteSQL(ctx, conn, lastGeneratedSQL)
+			stopLoading()
+
+			if err != nil {
+				// Error already displayed by tool
+				ui.ShowInfo("You can modify the query and try again.")
+				fmt.Println()
+				continue
+			}
+			// Tool success message is displayed by tool.ExecuteSQL
+
+			// Store result for potential view switching
+			lastQueryResult = result
+
+			// Display results
+			fmt.Println()
+			if len(result.Rows) == 0 {
+				ui.ShowInfo("Query executed successfully. No rows returned.")
+				fmt.Println()
+				continue
+			}
+
+			ui.ShowSuccess(fmt.Sprintf("Query executed successfully. %d row(s) returned.", len(result.Rows)))
+			fmt.Println()
+
+			// Automatically display as table for execute command
+			ui.PrintTable(result.Columns, result.Rows)
+			fmt.Println()
+			continue
+		}
+
+		// Check if this is a view switching command (e.g., "display as pie chart", "show as bar")
+		queryLower := strings.ToLower(query)
+		isViewSwitch := (strings.Contains(queryLower, "display as") || strings.Contains(queryLower, "show as") ||
+			strings.Contains(queryLower, "view as") || strings.Contains(queryLower, "render as")) &&
+			(strings.Contains(queryLower, "chart") || strings.Contains(queryLower, "pie") ||
+				strings.Contains(queryLower, "bar") || strings.Contains(queryLower, "line") ||
+				strings.Contains(queryLower, "scatter") || strings.Contains(queryLower, "table"))
+
+		// If it's a view switch command and we have last query result, use it directly with tools
+		if isViewSwitch && lastQueryResult != nil {
+			// Extract chart type from query
+			chartType := detectChartTypeFromQuery(queryLower)
+			if chartType != "" {
+				// Display the last result with the requested chart type
+				if chartType == "table" {
+					ui.PrintTable(lastQueryResult.Columns, lastQueryResult.Rows)
+					fmt.Println()
+				} else {
+					// Basic guard: chart types need at least 2 columns
+					if len(lastQueryResult.Columns) < 2 {
+						ui.ShowWarning(fmt.Sprintf("Cannot render %s chart: requires at least 2 columns. Showing table instead.", chartType))
+						ui.PrintTable(lastQueryResult.Columns, lastQueryResult.Rows)
+						fmt.Println()
+						// Add to conversation history
+						sess.AddMessage("user", query)
+						sess.AddMessage("assistant", fmt.Sprintf("Displayed results as table (chart requires at least 2 columns)."))
+						continue
+					}
+					chartOutput, err := tool.RenderChartString(lastQueryResult, chartType)
+					if err != nil {
+						ui.ShowWarning(fmt.Sprintf("Cannot render %s chart: %v. Showing table instead.", chartType, err))
+						ui.ShowInfo("Displaying table view instead.")
+						ui.PrintTable(lastQueryResult.Columns, lastQueryResult.Rows)
+					} else {
+						title := fmt.Sprintf("Chart (%d rows)", len(lastQueryResult.Rows))
+						ui.DisplayChart(chartOutput, chartType, title)
+					}
+					fmt.Println()
+				}
+				// Add to conversation history
+				sess.AddMessage("user", query)
+				sess.AddMessage("assistant", fmt.Sprintf("Displaying results as %s chart.", chartType))
+				continue
+			}
+		}
+
+		// Convert existing session messages to LLM chat messages (before adding current query)
+		conversationHistory := make([]llm.ChatMessage, 0)
+		for _, msg := range sess.GetHistory() {
+			conversationHistory = append(conversationHistory, llm.ChatMessage{
+				Role:    msg.Role,
+				Content: msg.Content,
+			})
+		}
+
+		// Prepare schema context
+		schemaContext := schema.FormatSchema()
+		if schemaContext == "" {
+			schemaContext = fmt.Sprintf("Currently connected to database: %s\nNo schema information available yet.", src.Database)
+		} else {
+			schemaContext = fmt.Sprintf("Currently connected to database: %s\n\n%s", src.Database, schemaContext)
+		}
+
+		// Get tool definitions
+		tools := tool.GetLLMFunctions()
+
+		// Create tool handler
+		toolHandler := NewToolHandler(conn)
+
+		// Use tool calling loop - LLM decides which tools to call
+		stopLoading := ui.ShowLoading("Thinking...")
+		finalResponse, queryResult, err := toolHandler.HandleToolCallLoop(ctx, llmClient, query, schemaContext, src.GetDatabaseType(), conversationHistory, tools)
 		stopLoading()
 
 		if err != nil {
-			ui.ShowError(fmt.Sprintf("Failed to translate to SQL: %v", err))
+			ui.ShowError(fmt.Sprintf("Failed to process request: %v", err))
 			ui.ShowInfo("Please check your LLM configuration and try again.")
 			fmt.Println()
 			continue
 		}
 
-		// Display translated SQL
-		fmt.Println()
-		ui.ShowInfo("Generated SQL:")
-		fmt.Println(ui.HighlightSQL(sqlQuery))
-		fmt.Println()
+		// Add user message to history
+		sess.AddMessage("user", query)
 
-		// Confirm execution
-		confirm, err := ui.ShowConfirm("Execute this query?")
-		if err != nil {
+		// Store query result for potential view switching
+		if queryResult != nil {
+			lastQueryResult = queryResult
+		}
+
+		// Display final response
+		if finalResponse != "" {
+			sess.AddMessage("assistant", finalResponse)
 			fmt.Println()
-			continue
-		}
-
-		if !confirm {
-			ui.ShowInfo("Query cancelled.")
-			fmt.Println()
-			continue
-		}
-
-		// Execute query
-		stopLoading = ui.ShowLoading("Executing query...")
-		result, err := conn.ExecuteQuery(ctx, sqlQuery)
-		stopLoading()
-
-		if err != nil {
-			ui.ShowError(fmt.Sprintf("Query execution failed: %v", err))
-			ui.ShowInfo("You can modify the query and try again.")
-			fmt.Println()
-			continue
-		}
-
-		// Display results
-		fmt.Println()
-		if len(result.Rows) == 0 {
-			ui.ShowInfo("Query executed successfully. No rows returned.")
-			fmt.Println()
-			continue
-		}
-
-		ui.ShowSuccess(fmt.Sprintf("Query executed successfully. %d row(s) returned.", len(result.Rows)))
-		fmt.Println()
-
-		// Prompt for view type
-		viewItems := []ui.MenuItem{
-			{Label: "table - View as table", Value: "table"},
-			{Label: "chart - View as chart", Value: "chart"},
-			{Label: "both  - View both table and chart", Value: "both"},
-		}
-
-		viewChoice, err := ui.ShowMenu("Select view type", viewItems)
-		if err != nil {
-			fmt.Println()
-			continue
-		}
-
-		// Display table if requested
-		if viewChoice == "table" || viewChoice == "both" {
-			ui.PrintTable(result.Columns, result.Rows)
-			fmt.Println()
-		}
-
-		// Display chart if requested
-		if viewChoice == "chart" || viewChoice == "both" {
-			if err := displayChart(result); err != nil {
-				ui.ShowWarning(fmt.Sprintf("Failed to render chart: %v", err))
-				ui.ShowInfo("Displaying table view instead.")
-				ui.PrintTable(result.Columns, result.Rows)
-			}
+			fmt.Println(finalResponse)
 			fmt.Println()
 		}
 	}
@@ -256,20 +441,13 @@ func displayChart(result *db.QueryResult) error {
 		chartType = chart.ChartType(selected)
 	}
 
-	// Create default config
-	config := chart.DefaultConfig()
-	config.Width = 80
-	config.Height = 20
-	config.Title = fmt.Sprintf("Query Results (%d rows)", len(result.Rows))
-
-	// Render chart
-	chartOutput, err := chart.RenderChart(result, chartType, config)
+	// Render chart string and display
+	chartOutput, err := tool.RenderChartString(result, string(chartType))
 	if err != nil {
 		return fmt.Errorf("chart rendering failed: %w", err)
 	}
-
-	// Display chart using UI helper
-	ui.DisplayChart(chartOutput, string(chartType), config.Title)
+	title := fmt.Sprintf("Chart (%d rows)", len(result.Rows))
+	ui.DisplayChart(chartOutput, string(chartType), title)
 
 	return nil
 }
@@ -288,4 +466,24 @@ func getChartTypeLabel(ct chart.ChartType) string {
 	default:
 		return "Unknown chart type"
 	}
+}
+
+// detectChartTypeFromQuery extracts chart type from user query
+func detectChartTypeFromQuery(queryLower string) string {
+	if strings.Contains(queryLower, "pie") {
+		return "pie"
+	}
+	if strings.Contains(queryLower, "bar") {
+		return "bar"
+	}
+	if strings.Contains(queryLower, "line") {
+		return "line"
+	}
+	if strings.Contains(queryLower, "scatter") {
+		return "scatter"
+	}
+	if strings.Contains(queryLower, "table") {
+		return "table"
+	}
+	return ""
 }

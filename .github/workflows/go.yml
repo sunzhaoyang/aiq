@@ -68,7 +68,7 @@ jobs:
       - name: Build for ${{ matrix.platform.name }}
         run: |
           # 使用矩阵中的变量进行交叉编译
-          GOOS=${{ matrix.platform.goos }} GOARCH=${{ matrix.platform.goarch }} go build -o "bin/myapp-${{ matrix.platform.name }}${{ matrix.platform.ext }}" ./...
+          GOOS=${{ matrix.platform.goos }} GOARCH=${{ matrix.platform.goarch }} go build -o "bin/aiq-${{ matrix.platform.name }}${{ matrix.platform.ext }}" ./cmd/aiq
         env:
           # 传递环境变量给 go build 命令
           GOOS: ${{ matrix.platform.goos }}
@@ -78,7 +78,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: binary-${{ matrix.platform.name }}
-          path: bin/myapp-${{ matrix.platform.name }}${{ matrix.platform.ext }}
+          path: bin/aiq-${{ matrix.platform.name }}${{ matrix.platform.ext }}
 
   # 新增：创建 GitHub Release 并上传所有二进制文件
   create-release:

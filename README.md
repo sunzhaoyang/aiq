@@ -20,11 +20,13 @@ AIQ (AI Query) is an intelligent SQL client that enables you to interact with da
 ### ✨ Key Features
 
 - 🗣️ **Natural Language to SQL** - Ask questions in plain English or Chinese, get precise SQL queries
+- 💬 **Multi-Turn Conversation** - Maintain conversation context for refined queries and follow-up questions
 - 📊 **Chart Visualization** - Support for bar charts, line charts, pie charts, and scatter plots
 - 🔌 **Multiple Database Support** - [seekdb](https://www.oceanbase.ai/), MySQL, and PostgreSQL
 - 🎨 **Beautiful CLI Interface** - Smooth interactions and color-coded output
 - ⚙️ **Easy Configuration** - Guided setup wizard
 - 🔒 **Local Storage** - Configuration and connection info stored securely locally
+- 💾 **Session Persistence** - Save and restore conversation sessions
 
 ## 🚀 Quick Start
 
@@ -176,6 +178,50 @@ Select `source` from the main menu to:
 ### Chat Mode
 
 Select `chat` from the main menu to enter query mode:
+
+#### Multi-Turn Conversation
+
+AIQ supports multi-turn conversations, maintaining context across queries:
+
+```
+aiq> Show total sales for last week
+[Generated SQL and results...]
+
+aiq> Modify to show only last 3 days
+[AIQ understands "modify" refers to the previous query and generates updated SQL...]
+
+aiq> Group by product category instead
+[AIQ continues the conversation, refining the query...]
+```
+
+#### Conversation Commands
+
+- `/history` - View conversation history
+- `/clear` - Clear conversation history
+- `exit` or `back` - Exit chat mode (session will be saved automatically)
+
+#### Session Management
+
+When you exit chat mode, your conversation session is automatically saved:
+
+```
+Current session saved to ~/.aiqconfig/session_20260126100000.json
+Run 'aiq -s ~/.aiqconfig/session_20260126100000.json' to continue.
+```
+
+To restore a previous session:
+
+```bash
+aiq -s ~/.aiqconfig/session_20260126100000.json
+```
+
+Or use the `--session` flag:
+
+```bash
+aiq --session ~/.aiqconfig/session_20260126100000.json
+```
+
+#### Basic Usage
 
 1. **Select Data Source** - Choose from configured data sources
 2. **Enter Question** - Describe your query in natural language
