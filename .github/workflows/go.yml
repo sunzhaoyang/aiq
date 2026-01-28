@@ -11,6 +11,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: write
+
 jobs:
 
   # 重命名 job 为更能反映其作用的名称
