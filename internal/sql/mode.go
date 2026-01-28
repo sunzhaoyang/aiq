@@ -21,6 +21,13 @@ import (
 // RunSQLMode runs the SQL interactive mode
 // sessionFile is optional path to a session file to restore
 func RunSQLMode(sessionFile string) error {
+	return RunSQLModeWithSource("", sessionFile)
+}
+
+// RunSQLModeWithSource runs the SQL interactive mode with a specific source
+// providedSourceName is the name of the source to use (empty string means prompt for selection)
+// sessionFile is optional path to a session file to restore
+func RunSQLModeWithSource(providedSourceName string, sessionFile string) error {
 	var sess *session.Session
 	var src *source.Source
 	var sourceName string
@@ -39,8 +46,13 @@ func RunSQLMode(sessionFile string) error {
 		}
 	}
 
-	// Select source (if not restored from session) - now optional for free mode
-	if sess == nil || sourceName == "" {
+	// Use provided source name if available (from CLI args)
+	if providedSourceName != "" {
+		sourceName = providedSourceName
+	}
+
+	// Select source (if not restored from session and not provided) - now optional for free mode
+	if sess == nil && sourceName == "" {
 		sources, err := source.LoadSources()
 		if err != nil {
 			return fmt.Errorf("failed to load sources: %w", err)

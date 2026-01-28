@@ -120,3 +120,83 @@ func GetSource(name string) (*Source, error) {
 
 	return nil, fmt.Errorf("source with name '%s' not found", name)
 }
+
+// GenerateUniqueSourceName generates a unique source name based on host, port, and user
+// Format: {host}-{port}-{user}, with numeric suffix if collision occurs
+func GenerateUniqueSourceName(host string, port int, user string) (string, error) {
+	baseName := fmt.Sprintf("%s-%d-%s", host, port, user)
+	
+	sources, err := LoadSources()
+	if err != nil {
+		return "", fmt.Errorf("failed to load sources: %w", err)
+	}
+
+	// Check if base name exists
+	nameExists := false
+	for _, s := range sources {
+		if s.Name == baseName {
+			nameExists = true
+			break
+		}
+	}
+
+	if !nameExists {
+		return baseName, nil
+	}
+
+	// Find unique name by appending numeric suffix
+	for i := 2; i < 1000; i++ {
+		candidateName := fmt.Sprintf("%s-%d", baseName, i)
+		exists := false
+		for _, s := range sources {
+			if s.Name == candidateName {
+				exists = true
+				break
+			}
+		}
+		if !exists {
+			return candidateName, nil
+		}
+	}
+
+	return "", fmt.Errorf("failed to generate unique source name after 998 attempts")
+}
+
+// FindExistingSourceByConnection finds an existing source with the same host, port, and username
+// Returns the source name if found, empty string if not found
+func FindExistingSourceByConnection(host string, port int, username string) (string, error) {
+	sources, err := LoadSources()
+	if err != nil {
+		return "", fmt.Errorf("failed to load sources: %w", err)
+	}
+
+	for _, s := range sources {
+		if s.Host == host && s.Port == port && s.Username == username {
+			return s.Name, nil
+		}
+	}
+
+	return "", nil // Not found, but no error
+}
+
+// AddSourceWithAutoName adds a source with an auto-generated unique name
+// If a source with the same host, port, and username already exists, returns the existing source name
+func AddSourceWithAutoName(source *Source) (string, error) {
+	// First check if a source with the same connection parameters already exists
+	existingName, err := FindExistingSourceByConnection(source.Host, source.Port, source.Username)
+	if err != nil {
+		return "", err
+	}
+	if existingName != "" {
+		// Source already exists, return existing name
+		return existingName, nil
+	}
+
+	// No existing source found, create a new one with auto-generated name
+	name, err := GenerateUniqueSourceName(source.Host, source.Port, source.Username)
+	if err != nil {
+		return "", err
+	}
+	source.Name = name
+	return name, AddSource(source)
+}
