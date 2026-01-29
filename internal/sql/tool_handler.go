@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aiq/aiq/internal/db"
 	"github.com/aiq/aiq/internal/llm"
@@ -57,14 +58,14 @@ func NewToolHandler(conn *db.Connection, skillsManager *skills.Manager, llmClien
 func (h *ToolHandler) formatToolCall(toolCall llm.ToolCall) string {
 	toolName := toolCall.Function.Name
 	argsStr := toolCall.Function.Arguments
-	
+
 	// Try to parse arguments to format them nicely
 	args, err := toolCall.ParseArguments()
 	if err != nil {
 		// If parsing fails, just show the raw arguments (truncated)
 		return h.formatToolCallWithRawArgs(toolName, argsStr)
 	}
-	
+
 	// Format arguments based on tool type
 	switch toolName {
 	case "execute_sql":
@@ -96,14 +97,36 @@ func (h *ToolHandler) formatToolCall(toolCall llm.ToolCall) string {
 			return fmt.Sprintf("Calling tool [%s] with %d row(s)", toolName, rowCount)
 		}
 	}
-	
-	// Default: show tool name with truncated arguments
-	return fmt.Sprintf("Calling tool [%s] with args: %s", toolName, h.truncateString(argsStr, 60))
+
+	// Default: show tool name with truncated arguments (cleaned up for display)
+	displayStr := argsStr
+
+	// If it's a quoted JSON string, unquote it for cleaner display
+	if len(displayStr) >= 2 && displayStr[0] == '"' && displayStr[len(displayStr)-1] == '"' {
+		var unquoted string
+		if err := json.Unmarshal([]byte(displayStr), &unquoted); err == nil {
+			displayStr = unquoted
+		}
+	}
+
+	return fmt.Sprintf("Calling tool [%s] with args: %s", toolName, h.truncateString(displayStr, 60))
 }
 
 // formatToolCallWithRawArgs formats tool call when arguments can't be parsed
 func (h *ToolHandler) formatToolCallWithRawArgs(toolName, argsStr string) string {
-	return fmt.Sprintf("Calling tool [%s] with args: %s", toolName, h.truncateString(argsStr, 60))
+	// Clean up the JSON string for display - remove outer quotes and unescape
+	displayStr := argsStr
+
+	// If it's a quoted JSON string, unquote it
+	if len(displayStr) >= 2 && displayStr[0] == '"' && displayStr[len(displayStr)-1] == '"' {
+		// Use json.Unmarshal to properly unquote and unescape
+		var unquoted string
+		if err := json.Unmarshal([]byte(displayStr), &unquoted); err == nil {
+			displayStr = unquoted
+		}
+	}
+
+	return fmt.Sprintf("Calling tool [%s] with args: %s", toolName, h.truncateString(displayStr, 60))
 }
 
 // truncateString truncates a string to maxLen, adding "..." if truncated
@@ -199,7 +222,7 @@ func (h *ToolHandler) ExecuteTool(ctx context.Context, toolCall llm.ToolCall) (j
 			"rows":      result.Rows,
 			"row_count": len(result.Rows),
 		}
-		
+
 		// For DDL/DML operations (no data returned), add explicit completion message
 		if len(result.Rows) == 0 {
 			sqlUpper := strings.ToUpper(strings.TrimSpace(sql))
@@ -207,12 +230,12 @@ func (h *ToolHandler) ExecuteTool(ctx context.Context, toolCall llm.ToolCall) (j
 				strings.HasPrefix(sqlUpper, "DROP") || strings.HasPrefix(sqlUpper, "INSERT") ||
 				strings.HasPrefix(sqlUpper, "UPDATE") || strings.HasPrefix(sqlUpper, "DELETE") ||
 				strings.HasPrefix(sqlUpper, "CALL") || strings.HasPrefix(sqlUpper, "TRUNCATE")
-			
+
 			if isDDL {
 				resultJSON["message"] = "SQL executed successfully. Task completed."
 			}
 		}
-		
+
 		jsonData, err := json.Marshal(resultJSON)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal result: %w", err)
@@ -326,7 +349,7 @@ func (h *ToolHandler) ExecuteTool(ctx context.Context, toolCall llm.ToolCall) (j
 		return json.RawMessage(jsonData), nil
 
 	default:
-		// Try built-in tools
+		// Try built-in tools - use ExecuteBuiltinTool (no callback support yet)
 		result, err := builtin.ExecuteBuiltinTool(ctx, toolName, args, h.conn)
 		if err != nil {
 			// Check if it's truly an unknown tool or an execution error
@@ -348,19 +371,19 @@ func (h *ToolHandler) ExecuteTool(ctx context.Context, toolCall llm.ToolCall) (j
 			return json.RawMessage(jsonData), nil
 		}
 		// Convert result to JSON
-		// For execute_command, add explicit status field based on exit_code
+		// For execute_command, use truncated output for LLM and add status field
 		if toolName == "execute_command" {
-			// First marshal to JSON, then unmarshal to map to add status
+			// First marshal to JSON, then unmarshal to map to add status and use truncated output
 			jsonBytes, err := json.Marshal(result)
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal result: %w", err)
 			}
-			
+
 			var resultMap map[string]interface{}
 			if err := json.Unmarshal(jsonBytes, &resultMap); err != nil {
 				return nil, fmt.Errorf("failed to unmarshal result: %w", err)
 			}
-			
+
 			// Check exit_code to determine status (simple rule: 0 = success, non-zero = error)
 			exitCode := 0
 			if ec, ok := resultMap["exit_code"].(float64); ok {
@@ -368,7 +391,27 @@ func (h *ToolHandler) ExecuteTool(ctx context.Context, toolCall llm.ToolCall) (j
 			} else if ec, ok := resultMap["exit_code"].(int); ok {
 				exitCode = ec
 			}
-			
+
+			// Save full output for display (before truncation)
+			fullStdout, _ := resultMap["stdout"].(string)
+			fullStderr, _ := resultMap["stderr"].(string)
+
+			// Use truncated output for LLM (if available)
+			if truncatedStdout, ok := resultMap["truncated_stdout"].(string); ok && truncatedStdout != "" {
+				// Keep full output in a separate field for display
+				resultMap["_full_stdout"] = fullStdout
+				resultMap["stdout"] = truncatedStdout
+			}
+			if truncatedStderr, ok := resultMap["truncated_stderr"].(string); ok && truncatedStderr != "" {
+				// Keep full output in a separate field for display
+				resultMap["_full_stderr"] = fullStderr
+				resultMap["stderr"] = truncatedStderr
+			}
+
+			// Remove truncated fields from JSON (they're only for internal use)
+			delete(resultMap, "truncated_stdout")
+			delete(resultMap, "truncated_stderr")
+
 			// Add explicit status field based on exit_code
 			if exitCode == 0 {
 				resultMap["status"] = "success"
@@ -376,7 +419,10 @@ func (h *ToolHandler) ExecuteTool(ctx context.Context, toolCall llm.ToolCall) (j
 				resultMap["status"] = "error"
 				resultMap["error"] = fmt.Sprintf("Command exited with code %d", exitCode)
 			}
-			
+
+			// Note: Keep _full_stdout and _full_stderr for display in tool_handler
+			// They will be removed before sending to LLM in the tool call loop
+
 			// Marshal back to JSON
 			jsonData, err := json.Marshal(resultMap)
 			if err != nil {
@@ -384,7 +430,7 @@ func (h *ToolHandler) ExecuteTool(ctx context.Context, toolCall llm.ToolCall) (j
 			}
 			return json.RawMessage(jsonData), nil
 		}
-		
+
 		// For other tools, convert result to JSON as-is
 		resultJSON, err := json.Marshal(result)
 		if err != nil {
@@ -486,7 +532,7 @@ You are a helpful AI assistant for database queries and related tasks.
 		metadataList := h.skillsManager.GetMetadata()
 		if len(metadataList) > 0 {
 			matchedMetadata := h.matcher.Match(userInput, metadataList)
-			
+
 			// Evict Skills not matched in recent queries before loading new ones
 			evicted := h.skillsManager.EvictUnusedSkills(skills.DefaultEvictionQueries)
 			if len(evicted) > 0 {
@@ -589,7 +635,7 @@ You are a helpful AI assistant for database queries and related tasks.
 	var lastFormattedOutput string
 	maxIterations := 10 // Prevent infinite loops
 
-		for i := 0; i < maxIterations; i++ {
+	for i := 0; i < maxIterations; i++ {
 		// Call LLM - show "Thinking..." while LLM is processing
 		stopThinking := ui.ShowLoading("Thinking...")
 		response, err := llmClient.ChatWithTools(ctx, messages, tools)
@@ -697,33 +743,147 @@ You are a helpful AI assistant for database queries and related tasks.
 
 			// Format and display tool call with arguments
 			toolCallDisplay := h.formatToolCall(toolCall)
-			ui.ShowInfo(toolCallDisplay)
-			// Show "Waiting..." while tool is executing (especially for commands that take time)
-			waitingMsg := "Waiting..."
+			var startTime time.Time
+			var toolResult json.RawMessage
+			var err error
+
+			// Special handling for execute_command: track time and streaming output
 			if toolCall.Function.Name == "execute_command" {
-				waitingMsg = "Waiting for command to complete..."
-			} else if toolCall.Function.Name == "execute_sql" {
-				waitingMsg = "Executing SQL..."
-			} else if toolCall.Function.Name == "http_request" {
-				waitingMsg = "Waiting for HTTP response..."
+				// Display tool call with loading icon (normal color for main command)
+				fmt.Println("⏳ " + toolCallDisplay)
+				startTime = time.Now()
+
+				// Create rolling output for real-time display
+				rollingOutput := ui.NewRollingOutput(3)
+
+				// Parse arguments
+				args, parseErr := toolCall.ParseArguments()
+				if parseErr != nil {
+					err = parseErr
+					toolResult = nil
+				} else {
+					// Execute with callback for streaming output - rolling window display
+					result, execErr := builtin.ExecuteBuiltinToolWithCallback(ctx, "execute_command", args, h.conn, func(line string) {
+						// AddLine handles the rolling display (clears old lines, prints new ones)
+						rollingOutput.AddLine(line)
+					})
+
+					// Show summary after command completes
+					rollingOutput.Finish()
+
+					if execErr != nil {
+						err = execErr
+						toolResult = nil
+					} else {
+						// Convert result to JSON
+						jsonBytes, marshalErr := json.Marshal(result)
+						if marshalErr != nil {
+							err = fmt.Errorf("failed to marshal result: %w", marshalErr)
+							toolResult = nil
+						} else {
+							// Process result for LLM (truncation, status, etc.)
+							var resultMap map[string]interface{}
+							if unmarshalErr := json.Unmarshal(jsonBytes, &resultMap); unmarshalErr == nil {
+								exitCode := 0
+								if ec, ok := resultMap["exit_code"].(float64); ok {
+									exitCode = int(ec)
+								} else if ec, ok := resultMap["exit_code"].(int); ok {
+									exitCode = ec
+								}
+
+								// Save full output for display
+								fullStdout, _ := resultMap["stdout"].(string)
+								fullStderr, _ := resultMap["stderr"].(string)
+
+								// Use truncated output for LLM
+								if truncatedStdout, ok := resultMap["truncated_stdout"].(string); ok && truncatedStdout != "" {
+									resultMap["_full_stdout"] = fullStdout
+									resultMap["stdout"] = truncatedStdout
+								}
+								if truncatedStderr, ok := resultMap["truncated_stderr"].(string); ok && truncatedStderr != "" {
+									resultMap["_full_stderr"] = fullStderr
+									resultMap["stderr"] = truncatedStderr
+								}
+
+								delete(resultMap, "truncated_stdout")
+								delete(resultMap, "truncated_stderr")
+
+								// Add status
+								if exitCode == 0 {
+									resultMap["status"] = "success"
+								} else {
+									resultMap["status"] = "error"
+									resultMap["error"] = fmt.Sprintf("Command exited with code %d", exitCode)
+								}
+
+								jsonData, _ := json.Marshal(resultMap)
+								toolResult = json.RawMessage(jsonData)
+							}
+						}
+					}
+				}
+			} else {
+				// For other tools, use normal display
+				ui.ShowInfo(toolCallDisplay)
+
+				waitingMsg := "Waiting..."
+				if toolCall.Function.Name == "execute_sql" {
+					waitingMsg = "Executing SQL..."
+				} else if toolCall.Function.Name == "http_request" {
+					waitingMsg = "Waiting for HTTP response..."
+				}
+				stopWaiting := ui.ShowLoading(waitingMsg)
+				toolResult, err = h.ExecuteTool(ctx, toolCall)
+				stopWaiting()
 			}
-			stopWaiting := ui.ShowLoading(waitingMsg)
-			toolResult, err := h.ExecuteTool(ctx, toolCall)
-			stopWaiting()
 			if err != nil {
 				// Format error message for LLM
 				errorMsg := fmt.Sprintf(`{"error": "%s"}`, strings.ReplaceAll(err.Error(), `"`, `\"`))
 				toolResult = json.RawMessage(errorMsg)
-				// Show user-friendly error message
-				ui.ShowError(fmt.Sprintf("Tool [%s] failed: %s", toolCall.Function.Name, err.Error()))
+				// Show user-friendly error message with duration for execute_command
+				if toolCall.Function.Name == "execute_command" {
+					duration := time.Since(startTime)
+					ui.ShowError(fmt.Sprintf("Tool [execute_command] failed: %s (%.1fs)", err.Error(), duration.Seconds()))
+				} else {
+					ui.ShowError(fmt.Sprintf("Tool [%s] failed: %s", toolCall.Function.Name, err.Error()))
+				}
 			} else {
 				// Check if tool result contains an error (even if ExecuteTool returned nil error)
 				var resultData map[string]interface{}
 				if jsonErr := json.Unmarshal(toolResult, &resultData); jsonErr == nil {
-					if errorMsg, hasError := resultData["error"].(string); hasError && errorMsg != "" {
-						ui.ShowError(fmt.Sprintf("Tool [%s] failed: %s", toolCall.Function.Name, errorMsg))
+					// Special handling for execute_command: display status (output already printed in real-time)
+					if toolCall.Function.Name == "execute_command" {
+						exitCode := 0
+						if ec, ok := resultData["exit_code"].(float64); ok {
+							exitCode = int(ec)
+						} else if ec, ok := resultData["exit_code"].(int); ok {
+							exitCode = ec
+						}
+
+						// Calculate execution time
+						duration := time.Since(startTime)
+
+						// Display status with icon and duration
+						if exitCode == 0 {
+							ui.ShowSuccess(fmt.Sprintf("Tool [execute_command] completed (%.1fs)", duration.Seconds()))
+						} else {
+							ui.ShowError(fmt.Sprintf("Tool [execute_command] failed with exit code %d (%.1fs)", exitCode, duration.Seconds()))
+						}
+						fmt.Println()
+
+						// Remove internal fields before sending to LLM
+						delete(resultData, "_full_stdout")
+						delete(resultData, "_full_stderr")
+						// Re-marshal toolResult without internal fields
+						jsonData, _ := json.Marshal(resultData)
+						toolResult = json.RawMessage(jsonData)
 					} else {
-						ui.ShowSuccess(fmt.Sprintf("Tool [%s] executed successfully", toolCall.Function.Name))
+						// For other tools, use existing display logic
+						if errorMsg, hasError := resultData["error"].(string); hasError && errorMsg != "" {
+							ui.ShowError(fmt.Sprintf("Tool [%s] failed: %s", toolCall.Function.Name, errorMsg))
+						} else {
+							ui.ShowSuccess(fmt.Sprintf("Tool [%s] executed successfully", toolCall.Function.Name))
+						}
 					}
 				} else {
 					ui.ShowSuccess(fmt.Sprintf("Tool [%s] executed successfully", toolCall.Function.Name))
@@ -770,9 +930,9 @@ You are a helpful AI assistant for database queries and related tasks.
 							// Simplify result for LLM - don't send raw data
 							// Explicitly instruct LLM not to repeat the data
 							simplifiedResult := map[string]interface{}{
-								"status":    "success",
-								"row_count": len(rowsData),
-								"displayed": true,
+								"status":      "success",
+								"row_count":   len(rowsData),
+								"displayed":   true,
 								"instruction": "Results already displayed to user in table format. Do NOT list, repeat, or summarize the data. Just confirm completion or ask if user needs anything else.",
 							}
 							simplifiedJSON, _ := json.Marshal(simplifiedResult)

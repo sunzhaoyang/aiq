@@ -8,21 +8,22 @@ import (
 
 const (
 	// ConfigDir is the base configuration directory name
-	ConfigDir = ".aiqconfig"
+	ConfigDir = ".aiq"
 
 	// Subdirectories within config directory
-	ConfigSubdir    = "config"
-	SessionsSubdir  = "sessions"
-	SkillsSubdir    = "skills"
-	ToolsSubdir     = "tools"
-	PromptsSubdir   = "prompts"
+	ConfigSubdir   = "config"
+	SessionsSubdir = "sessions"
+	SkillsSubdir   = "skills"
+	ToolsSubdir    = "tools"
+	PromptsSubdir  = "prompts"
+	BinSubdir      = "bin"
 
 	// Config files
-	ConfigFile   = "config.yaml"
+	ConfigFile  = "config.yaml"
 	SourcesFile = "sources.yaml"
 )
 
-// GetBaseConfigDir returns the base configuration directory path (~/.aiqconfig)
+// GetBaseConfigDir returns the base configuration directory path (~/.aiq)
 func GetBaseConfigDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -31,7 +32,7 @@ func GetBaseConfigDir() (string, error) {
 	return filepath.Join(homeDir, ConfigDir), nil
 }
 
-// GetConfigDir returns the config subdirectory path (~/.aiqconfig/config)
+// GetConfigDir returns the config subdirectory path (~/.aiq/config)
 func GetConfigDir() (string, error) {
 	baseDir, err := GetBaseConfigDir()
 	if err != nil {
@@ -40,7 +41,7 @@ func GetConfigDir() (string, error) {
 	return filepath.Join(baseDir, ConfigSubdir), nil
 }
 
-// GetSessionsDir returns the sessions subdirectory path (~/.aiqconfig/sessions)
+// GetSessionsDir returns the sessions subdirectory path (~/.aiq/sessions)
 func GetSessionsDir() (string, error) {
 	baseDir, err := GetBaseConfigDir()
 	if err != nil {
@@ -49,7 +50,7 @@ func GetSessionsDir() (string, error) {
 	return filepath.Join(baseDir, SessionsSubdir), nil
 }
 
-// GetSkillsDir returns the skills subdirectory path (~/.aiqconfig/skills)
+// GetSkillsDir returns the skills subdirectory path (~/.aiq/skills)
 func GetSkillsDir() (string, error) {
 	baseDir, err := GetBaseConfigDir()
 	if err != nil {
@@ -58,7 +59,7 @@ func GetSkillsDir() (string, error) {
 	return filepath.Join(baseDir, SkillsSubdir), nil
 }
 
-// GetToolsDir returns the tools subdirectory path (~/.aiqconfig/tools)
+// GetToolsDir returns the tools subdirectory path (~/.aiq/tools)
 func GetToolsDir() (string, error) {
 	baseDir, err := GetBaseConfigDir()
 	if err != nil {
@@ -67,7 +68,7 @@ func GetToolsDir() (string, error) {
 	return filepath.Join(baseDir, ToolsSubdir), nil
 }
 
-// GetPromptsDir returns the prompts subdirectory path (~/.aiqconfig/prompts)
+// GetPromptsDir returns the prompts subdirectory path (~/.aiq/prompts)
 func GetPromptsDir() (string, error) {
 	baseDir, err := GetBaseConfigDir()
 	if err != nil {
@@ -76,7 +77,16 @@ func GetPromptsDir() (string, error) {
 	return filepath.Join(baseDir, PromptsSubdir), nil
 }
 
-// GetConfigFilePath returns the full path to the configuration file (~/.aiqconfig/config/config.yaml)
+// GetBinDir returns the bin subdirectory path (~/.aiq/bin)
+func GetBinDir() (string, error) {
+	baseDir, err := GetBaseConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(baseDir, BinSubdir), nil
+}
+
+// GetConfigFilePath returns the full path to the configuration file (~/.aiq/config/config.yaml)
 func GetConfigFilePath() (string, error) {
 	configDir, err := GetConfigDir()
 	if err != nil {
@@ -85,7 +95,7 @@ func GetConfigFilePath() (string, error) {
 	return filepath.Join(configDir, ConfigFile), nil
 }
 
-// GetSourcesFilePath returns the full path to the sources file (~/.aiqconfig/config/sources.yaml)
+// GetSourcesFilePath returns the full path to the sources file (~/.aiq/config/sources.yaml)
 func GetSourcesFilePath() (string, error) {
 	configDir, err := GetConfigDir()
 	if err != nil {
@@ -105,6 +115,7 @@ func EnsureDirectoryStructure() error {
 		{"skills", GetSkillsDir},
 		{"tools", GetToolsDir},
 		{"prompts", GetPromptsDir},
+		{"bin", GetBinDir},
 	}
 
 	for _, dir := range dirs {

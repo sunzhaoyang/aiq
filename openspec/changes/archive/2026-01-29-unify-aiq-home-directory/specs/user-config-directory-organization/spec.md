@@ -1,4 +1,4 @@
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Structured config directory hierarchy
 The system SHALL organize user configuration files into a structured directory hierarchy under `~/.aiq/`.

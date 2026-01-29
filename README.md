@@ -33,9 +33,53 @@ AIQ (AI Query) is an intelligent SQL client that enables you to interact with da
 
 ### Installation
 
+#### Option 1: One-Click Install (Recommended)
+
+**Unix/Linux/macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/sunzhaoyang/aiq/main/scripts/install.sh | bash
+```
+
+**Windows:**
+```powershell
+# Download and run install.bat
+# Or run in PowerShell:
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/sunzhaoyang/aiq/main/scripts/install.bat" -OutFile "install.bat"
+.\install.bat
+```
+
+The installation script will:
+- Automatically detect the latest version from GitHub Releases
+- Detect your system architecture (darwin-amd64, darwin-arm64, linux-amd64, linux-arm64, windows-amd64)
+- Download the binary to `~/.aiq/bin` (Unix/Linux/macOS) or `%USERPROFILE%\.aiq\bin` (Windows)
+- Print PATH command for you to add manually
+- Verify the installation
+
+**After installation, add to PATH:**
+
+**Unix/Linux/macOS (zsh):**
+```bash
+echo 'export PATH="$HOME/.aiq/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**Unix/Linux/macOS (bash):**
+```bash
+echo 'export PATH="$HOME/.aiq/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**Windows:**
+```cmd
+setx PATH "%PATH%;%USERPROFILE%\.aiq\bin"
+```
+(Then open a new terminal window)
+
+#### Option 2: Manual Installation
+
 ```bash
 # Clone and build
-git clone https://github.com/aiq/aiq.git
+git clone https://github.com/sunzhaoyang/aiq.git
 cd aiq
 go build -o aiq cmd/aiq/main.go
 
@@ -103,7 +147,7 @@ aiq[source-name]> Modify to show only last 3 days
 
 **Session restore:**
 ```bash
-aiq -s ~/.aiqconfig/sessions/session_20260126100000.json
+aiq -s ~/.aiq/sessions/session_20260126100000.json
 ```
 
 ### Chart Visualization
@@ -121,7 +165,7 @@ Skills allow you to extend AIQ's capabilities by providing custom instructions a
 
 1. **Create Skill directory:**
 ```bash
-mkdir -p ~/.aiqconfig/skills/my-skill
+mkdir -p ~/.aiq/skills/my-skill
 ```
 
 2. **Create SKILL.md file:**
@@ -169,7 +213,7 @@ Each Skill must have:
 
 ### How It Works
 
-1. **On Startup**: AIQ loads metadata (name, description) from all Skills in `~/.aiqconfig/skills/`
+1. **On Startup**: AIQ loads metadata (name, description) from all Skills in `~/.aiq/skills/`
 2. **On Query**: System uses **LLM-based semantic matching** to find relevant Skills (falls back to keyword matching if LLM unavailable)
 3. **Auto-Load**: Top 3 most relevant Skills are loaded into the prompt
 4. **Dynamic Management**: System tracks Skills usage and evicts unused Skills during conversation
@@ -231,10 +275,10 @@ System automatically manages prompt length using **LLM-based semantic compressio
 
 ### Directory Structure
 
-Skills are stored in `~/.aiqconfig/skills/<skill-name>/SKILL.md`:
+Skills are stored in `~/.aiq/skills/<skill-name>/SKILL.md`:
 
 ```
-~/.aiqconfig/
+~/.aiq/
 └── skills/
     ├── my-skill/
     │   └── SKILL.md
@@ -247,7 +291,7 @@ Skills are stored in `~/.aiqconfig/skills/<skill-name>/SKILL.md`:
 ### Troubleshooting
 
 **Skills not loaded:**
-- Check directory structure: `~/.aiqconfig/skills/<skill-name>/SKILL.md`
+- Check directory structure: `~/.aiq/skills/<skill-name>/SKILL.md`
 - Verify YAML frontmatter format (must start/end with `---`)
 - Ensure `name` and `description` fields exist
 - Check startup logs for errors
@@ -259,12 +303,13 @@ Skills are stored in `~/.aiqconfig/skills/<skill-name>/SKILL.md`:
 
 ## ⚙️ Configuration
 
-Configuration files are stored in `~/.aiqconfig/`:
+Configuration files are stored in `~/.aiq/`:
 
 - **config/config.yaml** - LLM configuration (URL, API Key, Model)
 - **config/sources.yaml** - Database connection configurations
 - **sessions/** - Conversation session files (auto-generated)
 - **skills/** - Custom Skills (see Skills section above)
+- **bin/** - Binary executable (installed via install script)
 
 **Example config.yaml:**
 ```yaml

@@ -1,18 +1,20 @@
 package builtin
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 )
 
 // CommandTool handles command execution
 type CommandTool struct {
-	blockedCommands    map[string]bool // Blocklist of dangerous commands
+	blockedCommands     map[string]bool // Blocklist of dangerous commands
 	interactiveCommands map[string]bool // Commands that require interactive input
 }
 
@@ -38,20 +40,20 @@ func NewCommandTool() *CommandTool {
 	// Commands that require interactive input (cannot be executed non-interactively)
 	interactive := map[string]bool{
 		"mysql_secure_installation": true,
-		"passwd":                   true,
-		"ssh":                      true, // Without -o BatchMode=yes
-		"ftp":                      true,
-		"telnet":                   true,
-		"less":                     true,
-		"more":                     true,
-		"vi":                       true,
-		"vim":                      true,
-		"nano":                     true,
-		"emacs":                    true,
+		"passwd":                    true,
+		"ssh":                       true, // Without -o BatchMode=yes
+		"ftp":                       true,
+		"telnet":                    true,
+		"less":                      true,
+		"more":                      true,
+		"vi":                        true,
+		"vim":                       true,
+		"nano":                      true,
+		"emacs":                     true,
 	}
 
 	return &CommandTool{
-		blockedCommands:    blocked,
+		blockedCommands:     blocked,
 		interactiveCommands: interactive,
 	}
 }
@@ -66,21 +68,67 @@ func (t *CommandTool) SetBlockedCommands(commands []string) {
 
 // CommandParams represents parameters for command execution
 type CommandParams struct {
-	Command     string `json:"command"`
-	Args        []string `json:"args,omitempty"`
-	WorkingDir  string `json:"working_dir,omitempty"`
-	Timeout     int    `json:"timeout,omitempty"` // Timeout in seconds, default 30
+	Command    string   `json:"command"`
+	Args       []string `json:"args,omitempty"`
+	WorkingDir string   `json:"working_dir,omitempty"`
+	Timeout    int      `json:"timeout,omitempty"` // Timeout in seconds, default 30
 }
+
+// OutputCallback is called when command produces output (for real-time display)
+type OutputCallback func(line string)
 
 // CommandResult represents command execution result
 type CommandResult struct {
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exit_code"`
+	Stdout          string `json:"stdout"`           // Full stdout output
+	Stderr          string `json:"stderr"`           // Full stderr output
+	TruncatedStdout string `json:"truncated_stdout"` // Truncated stdout for LLM (last N lines)
+	TruncatedStderr string `json:"truncated_stderr"` // Truncated stderr for LLM (last N lines)
+	ExitCode        int    `json:"exit_code"`
 }
 
-// Execute executes a shell command
+// truncateOutput truncates output to last N lines
+func truncateOutput(output string, maxLines int) string {
+	if maxLines <= 0 {
+		return output
+	}
+
+	lines := strings.Split(output, "\n")
+	if len(lines) <= maxLines {
+		return output
+	}
+
+	// Return last maxLines lines
+	start := len(lines) - maxLines
+	return strings.Join(lines[start:], "\n")
+}
+
+// truncateOutputBySize limits output to maximum size (10MB)
+func truncateOutputBySize(output string, maxSize int) string {
+	if maxSize <= 0 {
+		maxSize = 10 * 1024 * 1024 // 10MB default
+	}
+
+	if len(output) <= maxSize {
+		return output
+	}
+
+	// If output exceeds maxSize, keep only the last portion
+	// Try to keep whole lines
+	truncated := output[len(output)-maxSize:]
+	// Find first newline after truncation point
+	if idx := strings.Index(truncated, "\n"); idx >= 0 {
+		truncated = truncated[idx+1:]
+	}
+	return truncated
+}
+
+// Execute executes a shell command with streaming output and truncation
 func (t *CommandTool) Execute(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	return t.ExecuteWithCallback(ctx, params, nil)
+}
+
+// ExecuteWithCallback executes a shell command with optional output callback for real-time display
+func (t *CommandTool) ExecuteWithCallback(ctx context.Context, params map[string]interface{}, callback OutputCallback) (interface{}, error) {
 	// Parse parameters
 	var cmdParams CommandParams
 	paramsJSON, err := json.Marshal(params)
@@ -107,7 +155,7 @@ func (t *CommandTool) Execute(ctx context.Context, params map[string]interface{}
 	var cmdArgs []string
 	var envVars []string
 	cmdStartIdx := 0
-	
+
 	for i, part := range parts {
 		// Check if this part is an environment variable assignment (VAR=value format)
 		if strings.Contains(part, "=") && !strings.HasPrefix(part, "-") {
@@ -146,18 +194,14 @@ func (t *CommandTool) Execute(ctx context.Context, params map[string]interface{}
 		cmdArgs = cmdParams.Args
 	}
 
-	// Set timeout
-	timeout := 30 * time.Second
+	// Set idle timeout (timeout resets when there's output)
+	idleTimeout := 30 * time.Second
 	if cmdParams.Timeout > 0 {
-		timeout = time.Duration(cmdParams.Timeout) * time.Second
+		idleTimeout = time.Duration(cmdParams.Timeout) * time.Second
 	}
 
-	// Create context with timeout
-	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// Create command
-	cmd := exec.CommandContext(cmdCtx, cmdName, cmdArgs...)
+	// Create command (no fixed context timeout - we use idle timeout instead)
+	cmd := exec.Command(cmdName, cmdArgs...)
 
 	// Set environment variables if any were specified
 	if len(envVars) > 0 {
@@ -174,39 +218,150 @@ func (t *CommandTool) Execute(ctx context.Context, params map[string]interface{}
 		cmd.Dir = cmdParams.WorkingDir
 	}
 
-	// Execute command
-	output, err := cmd.CombinedOutput()
-	stdout := string(output)
-	stderr := ""
-	exitCode := 0
-
+	// Use separate pipes for stdout and stderr to enable streaming
+	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			exitCode = exitError.ExitCode()
-			stderr = exitError.Error()
-		} else {
-			return nil, fmt.Errorf("command execution failed: %w", err)
+		return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Start command
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start command: %w", err)
+	}
+
+	// Buffers to collect output
+	var stdoutBuilder, stderrBuilder strings.Builder
+	maxOutputSize := 10 * 1024 * 1024 // 10MB limit
+
+	// Channels for coordination
+	done := make(chan error, 1)
+	activity := make(chan struct{}, 100) // Buffered channel for activity signals
+
+	// Sync for goroutines
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Read stdout in goroutine
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdoutPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// Signal activity (non-blocking)
+			select {
+			case activity <- struct{}{}:
+			default:
+			}
+			// Call callback for real-time display
+			if callback != nil {
+				callback(line)
+			}
+			// Store in buffer
+			if stdoutBuilder.Len()+len(line)+1 <= maxOutputSize {
+				stdoutBuilder.WriteString(line + "\n")
+			}
+		}
+	}()
+
+	// Read stderr in goroutine
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderrPipe)
+		for scanner.Scan() {
+			line := scanner.Text()
+			// Signal activity (non-blocking)
+			select {
+			case activity <- struct{}{}:
+			default:
+			}
+			// Call callback for real-time display
+			if callback != nil {
+				callback(line)
+			}
+			// Store in buffer
+			if stderrBuilder.Len()+len(line)+1 <= maxOutputSize {
+				stderrBuilder.WriteString(line + "\n")
+			}
+		}
+	}()
+
+	// Wait for command to complete
+	go func() {
+		wg.Wait() // Wait for readers to finish
+		done <- cmd.Wait()
+	}()
+
+	// Wait for command completion with idle timeout
+	// Timer resets whenever there's output activity
+	idleTimer := time.NewTimer(idleTimeout)
+	defer idleTimer.Stop()
+
+	for {
+		select {
+		case err := <-done:
+			// Command completed
+			exitCode := 0
+			if err != nil {
+				if exitError, ok := err.(*exec.ExitError); ok {
+					exitCode = exitError.ExitCode()
+				} else {
+					return nil, fmt.Errorf("command execution failed: %w", err)
+				}
+			}
+
+			// Get full output
+			stdout := stdoutBuilder.String()
+			stderr := stderrBuilder.String()
+
+			// Apply size limit if exceeded
+			stdout = truncateOutputBySize(stdout, maxOutputSize)
+			stderr = truncateOutputBySize(stderr, maxOutputSize)
+
+			// Truncate for LLM based on exit code
+			// Success: 20 lines, Failure: 100 lines
+			truncateLines := 20
+			if exitCode != 0 {
+				truncateLines = 100
+			}
+
+			truncatedStdout := truncateOutput(stdout, truncateLines)
+			truncatedStderr := truncateOutput(stderr, truncateLines)
+
+			result := CommandResult{
+				Stdout:          stdout,
+				Stderr:          stderr,
+				TruncatedStdout: truncatedStdout,
+				TruncatedStderr: truncatedStderr,
+				ExitCode:        exitCode,
+			}
+
+			return result, nil
+
+		case <-activity:
+			// Activity detected - reset idle timer
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
+				}
+			}
+			idleTimer.Reset(idleTimeout)
+
+		case <-idleTimer.C:
+			// Idle timeout - no output for too long
+			cmd.Process.Kill()
+			return nil, fmt.Errorf("command execution timeout: no output for %v", idleTimeout)
+
+		case <-ctx.Done():
+			// Parent context cancelled
+			cmd.Process.Kill()
+			return nil, fmt.Errorf("command execution cancelled: %w", ctx.Err())
 		}
 	}
-
-	// Split stdout and stderr if possible
-	// Note: CombinedOutput doesn't separate them, so we use the error for stderr
-	if err == nil {
-		stdout = string(output)
-		stderr = ""
-	} else {
-		// Try to extract stderr from error message
-		stdout = string(output)
-		stderr = err.Error()
-	}
-
-	result := CommandResult{
-		Stdout:   stdout,
-		Stderr:   stderr,
-		ExitCode: exitCode,
-	}
-
-	return result, nil
 }
 
 // getBlockedCommandList returns list of blocked commands

@@ -33,13 +33,18 @@ func GetBuiltinToolDefinitions(dbConn *db.Connection) []map[string]interface{} {
 
 // ExecuteBuiltinTool executes a built-in tool by name
 func ExecuteBuiltinTool(ctx context.Context, name string, params map[string]interface{}, dbConn *db.Connection) (interface{}, error) {
+	return ExecuteBuiltinToolWithCallback(ctx, name, params, dbConn, nil)
+}
+
+// ExecuteBuiltinToolWithCallback executes a built-in tool with optional output callback
+func ExecuteBuiltinToolWithCallback(ctx context.Context, name string, params map[string]interface{}, dbConn *db.Connection, callback OutputCallback) (interface{}, error) {
 	switch name {
 	case "http_request":
 		httpTool := NewHTTPTool()
 		return httpTool.Execute(ctx, params)
 	case "execute_command":
 		commandTool := NewCommandTool()
-		return commandTool.Execute(ctx, params)
+		return commandTool.ExecuteWithCallback(ctx, params, callback)
 	case "file_operations":
 		fileTool, err := NewFileTool()
 		if err != nil {

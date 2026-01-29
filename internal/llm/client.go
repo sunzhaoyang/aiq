@@ -61,9 +61,9 @@ type Function struct {
 
 // ToolCall represents a tool call request from LLM
 type ToolCall struct {
-	ID        string `json:"id"`
-	Type      string `json:"type"` // "function"
-	Function  struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"` // "function"
+	Function struct {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"` // JSON string that needs to be parsed
 	} `json:"function"`
@@ -71,8 +71,20 @@ type ToolCall struct {
 
 // ParseArguments parses the arguments JSON string into a map
 func (tc *ToolCall) ParseArguments() (map[string]interface{}, error) {
+	argsStr := tc.Function.Arguments
+
+	// Handle double-encoded JSON (LLM sometimes returns JSON as a string)
+	// e.g., "{\"command\":\"brew list mysql\"}" instead of {"command":"brew list mysql"}
+	if len(argsStr) >= 2 && argsStr[0] == '"' && argsStr[len(argsStr)-1] == '"' {
+		// Try to unquote the string first
+		var unquoted string
+		if err := json.Unmarshal([]byte(argsStr), &unquoted); err == nil {
+			argsStr = unquoted
+		}
+	}
+
 	var args map[string]interface{}
-	if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+	if err := json.Unmarshal([]byte(argsStr), &args); err != nil {
 		return nil, fmt.Errorf("failed to parse arguments: %w", err)
 	}
 	return args, nil
@@ -80,9 +92,9 @@ func (tc *ToolCall) ParseArguments() (map[string]interface{}, error) {
 
 // ChatRequest represents a chat API request
 type ChatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []interface{} `json:"messages"` // Can be ChatMessage or map[string]interface{} for tool messages
-	Tools       []struct {
+	Model    string        `json:"model"`
+	Messages []interface{} `json:"messages"` // Can be ChatMessage or map[string]interface{} for tool messages
+	Tools    []struct {
 		Type     string   `json:"type"`
 		Function Function `json:"function"`
 	} `json:"tools,omitempty"`
@@ -101,7 +113,7 @@ type ChatResponse struct {
 	} `json:"choices"`
 	Error *struct {
 		Message string `json:"message"`
-		Type     string `json:"type"`
+		Type    string `json:"type"`
 	} `json:"error,omitempty"`
 }
 
@@ -147,18 +159,18 @@ Remember: If the user wants SQL, return ONLY the SQL query. If it's just convers
 
 	// Build messages list
 	messages := make([]ChatMessage, 0)
-	
+
 	// System message is always first
 	messages = append(messages, ChatMessage{
 		Role:    "system",
 		Content: systemMessage,
 	})
-	
+
 	// Add conversation history if provided
 	if conversationHistory != nil && len(conversationHistory) > 0 {
 		messages = append(messages, conversationHistory...)
 	}
-	
+
 	// Current query is always last
 	messages = append(messages, ChatMessage{
 		Role:    "user",
@@ -184,7 +196,7 @@ Remember: If the user wants SQL, return ONLY the SQL query. If it's just convers
 
 	// Build the full API URL
 	apiURL := c.buildAPIURL()
-	
+
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -234,7 +246,7 @@ Remember: If the user wants SQL, return ONLY the SQL query. If it's just convers
 		} `json:"choices"`
 		Error *struct {
 			Message string `json:"message"`
-			Type     string `json:"type"`
+			Type    string `json:"type"`
 		} `json:"error,omitempty"`
 	}
 	if err := json.Unmarshal(body, &chatResp); err != nil {
@@ -310,10 +322,10 @@ func (c *Client) ChatWithTools(ctx context.Context, messages []interface{}, tool
 
 	// Create request
 	reqBody := ChatRequest{
-		Model:       c.model,
-		Messages:    messages,
-		Tools:       toolsArray,
-		ToolChoice:  "auto", // Let LLM decide when to use tools
+		Model:      c.model,
+		Messages:   messages,
+		Tools:      toolsArray,
+		ToolChoice: "auto", // Let LLM decide when to use tools
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -323,7 +335,7 @@ func (c *Client) ChatWithTools(ctx context.Context, messages []interface{}, tool
 
 	// Build the full API URL
 	apiURL := c.buildAPIURL()
-	
+
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -373,7 +385,7 @@ func (c *Client) ChatWithTools(ctx context.Context, messages []interface{}, tool
 		} `json:"choices"`
 		Error *struct {
 			Message string `json:"message"`
-			Type     string `json:"type"`
+			Type    string `json:"type"`
 		} `json:"error,omitempty"`
 	}
 	if err := json.Unmarshal(body, &chatResp); err != nil {
@@ -406,18 +418,18 @@ func (c *Client) TranslateToSQL(ctx context.Context, naturalLanguage string, sch
 
 	// Build messages list
 	messages := make([]ChatMessage, 0)
-	
+
 	// System message is always first
 	messages = append(messages, ChatMessage{
 		Role:    "system",
 		Content: "You are a SQL expert. Translate natural language questions into precise SQL queries. Only return the SQL query, no explanations.",
 	})
-	
+
 	// Add conversation history if provided
 	if conversationHistory != nil && len(conversationHistory) > 0 {
 		messages = append(messages, conversationHistory...)
 	}
-	
+
 	// Current query is always last
 	messages = append(messages, ChatMessage{
 		Role:    "user",
@@ -443,7 +455,7 @@ func (c *Client) TranslateToSQL(ctx context.Context, naturalLanguage string, sch
 
 	// Build the full API URL
 	apiURL := c.buildAPIURL()
-	
+
 	// Create HTTP request
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -515,17 +527,17 @@ func (c *Client) TranslateToSQL(ctx context.Context, naturalLanguage string, sch
 // - https://api.example.com -> https://api.example.com/v1/chat/completions
 func (c *Client) buildAPIURL() string {
 	baseURL := strings.TrimSuffix(c.baseURL, "/")
-	
+
 	// If URL already ends with /chat/completions, use it as-is
 	if strings.HasSuffix(baseURL, "/chat/completions") {
 		return baseURL
 	}
-	
+
 	// If URL ends with /v1, append /chat/completions
 	if strings.HasSuffix(baseURL, "/v1") {
 		return baseURL + "/chat/completions"
 	}
-	
+
 	// Otherwise, append /v1/chat/completions
 	return baseURL + "/v1/chat/completions"
 }
@@ -533,16 +545,16 @@ func (c *Client) buildAPIURL() string {
 // cleanSQL removes markdown code block markers and extra whitespace from SQL
 func cleanSQL(sql string) string {
 	sql = strings.TrimSpace(sql)
-	
+
 	// Remove markdown code block markers (```sql, ```, etc.)
 	sql = strings.TrimPrefix(sql, "```sql")
 	sql = strings.TrimPrefix(sql, "```SQL")
 	sql = strings.TrimPrefix(sql, "```")
 	sql = strings.TrimSuffix(sql, "```")
-	
+
 	// Remove any leading/trailing whitespace again
 	sql = strings.TrimSpace(sql)
-	
+
 	return sql
 }
 
