@@ -52,3 +52,8 @@ func WarningText(text string) string {
 func HighlightText(text string) string {
 	return Highlight.Render(text)
 }
+
+// HintText returns text styled as hint (dimmed gray)
+func HintText(text string) string {
+	return Secondary.Render(text)
+}

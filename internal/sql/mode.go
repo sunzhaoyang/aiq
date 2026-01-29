@@ -2,6 +2,7 @@ package sql
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -18,16 +19,82 @@ import (
 	"github.com/aiq/aiq/internal/ui"
 )
 
+// ErrReturnToMenu is returned when user exits chat mode to return to main menu
+var ErrReturnToMenu = errors.New("return to main menu")
+
+// readlineWithHint reads a line from readline and shows hint when user types "/"
+// Since readline doesn't support real-time hints, we show hint when user presses Enter with incomplete command
+func readlineWithHint(rl *readline.Instance, buildPrompt func() string, commands []string, descriptions map[string]string) (string, error) {
+	line, err := rl.Readline()
+	if err != nil {
+		return "", err
+	}
+
+	// If user typed just "/" or a partial command starting with "/", show hint
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "/" {
+		// User typed just "/", show all available commands as hint
+		var hints []string
+		for _, cmd := range commands {
+			desc := descriptions[cmd]
+			if desc != "" {
+				hints = append(hints, fmt.Sprintf("%s - %s", cmd, desc))
+			} else {
+				hints = append(hints, cmd)
+			}
+		}
+		if len(hints) > 0 {
+			fmt.Print(ui.HintText("  Available commands: " + strings.Join(hints, ", ") + "\n"))
+			fmt.Print(buildPrompt())
+			// Read the rest of the input
+			rest, err := rl.Readline()
+			if err != nil {
+				return "", err
+			}
+			return "/" + rest, nil
+		}
+	} else if strings.HasPrefix(trimmed, "/") && len(trimmed) > 1 {
+		// User typed partial command, check if it matches any command
+		matched := false
+		for _, cmd := range commands {
+			if trimmed == cmd {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			// Show matching commands as hint
+			var hints []string
+			for _, cmd := range commands {
+				if strings.HasPrefix(cmd, trimmed) {
+					desc := descriptions[cmd]
+					if desc != "" {
+						hints = append(hints, fmt.Sprintf("%s - %s", cmd, desc))
+					} else {
+						hints = append(hints, cmd)
+					}
+				}
+			}
+			if len(hints) > 0 {
+				fmt.Print(ui.HintText("  Did you mean: " + strings.Join(hints, ", ") + "\n"))
+			}
+		}
+	}
+
+	return line, nil
+}
+
 // RunSQLMode runs the SQL interactive mode
 // sessionFile is optional path to a session file to restore
 func RunSQLMode(sessionFile string) error {
-	return RunSQLModeWithSource("", sessionFile)
+	return RunSQLModeWithSource("", sessionFile, "")
 }
 
 // RunSQLModeWithSource runs the SQL interactive mode with a specific source
 // providedSourceName is the name of the source to use (empty string means prompt for selection)
 // sessionFile is optional path to a session file to restore
-func RunSQLModeWithSource(providedSourceName string, sessionFile string) error {
+// overrideDatabase is optional database name to override source's database for this session only
+func RunSQLModeWithSource(providedSourceName string, sessionFile string, overrideDatabase string) error {
 	var sess *session.Session
 	var src *source.Source
 	var sourceName string
@@ -154,14 +221,22 @@ func RunSQLModeWithSource(providedSourceName string, sessionFile string) error {
 	ctx := context.Background() // Create context for use throughout the function
 	if src != nil {
 		var err error
-		conn, err = db.NewConnection(src.DSN(), string(src.Type))
+		// If overrideDatabase is provided, create a temporary source copy with overridden database
+		actualSource := src
+		if overrideDatabase != "" {
+			// Create a copy of the source with overridden database
+			tempSource := *src
+			tempSource.Database = overrideDatabase
+			actualSource = &tempSource
+		}
+		conn, err = db.NewConnection(actualSource.DSN(), string(actualSource.Type))
 		if err != nil {
 			return fmt.Errorf("failed to connect to database: %w", err)
 		}
 		defer conn.Close()
 
-		// Fetch schema for context
-		schema, err = conn.GetSchema(ctx, src.Database)
+		// Fetch schema for context (use actualSource.Database which may be overridden)
+		schema, err = conn.GetSchema(ctx, actualSource.Database)
 		if err != nil {
 			ui.ShowWarning(fmt.Sprintf("Failed to fetch schema: %v. Continuing without schema context.", err))
 			schema = &db.Schema{}
@@ -172,15 +247,6 @@ func RunSQLModeWithSource(providedSourceName string, sessionFile string) error {
 	skillsManager := skills.NewManager()
 	if err := skillsManager.Initialize(); err != nil {
 		ui.ShowWarning(fmt.Sprintf("Failed to initialize Skills manager: %v. Continuing without Skills.", err))
-	} else {
-		// Show Skills loading status
-		metadata := skillsManager.GetMetadata()
-		if len(metadata) > 0 {
-			ui.ShowInfo(fmt.Sprintf("Loaded %d skill(s) metadata (progressive loading enabled)", len(metadata)))
-			for _, md := range metadata {
-				ui.ShowInfo(fmt.Sprintf("  - %s: %s", md.Name, md.Description))
-			}
-		}
 	}
 
 	// Create LLM client
@@ -188,24 +254,42 @@ func RunSQLModeWithSource(providedSourceName string, sessionFile string) error {
 
 	// Show mode info
 	if src != nil {
-		ui.ShowInfo(fmt.Sprintf("Entering chat mode. Source: %s (%s/%s:%d/%s)", src.Name, src.Type, src.Host, src.Port, src.Database))
+		// Use actualDatabase which may be overridden by -D parameter
+		dbDisplay := ""
+		if overrideDatabase != "" {
+			dbDisplay = overrideDatabase
+		} else if src.Database != "" {
+			dbDisplay = src.Database
+		}
+		if dbDisplay != "" {
+			ui.ShowInfo(fmt.Sprintf("Entering chat mode. Source: %s | Database: %s", ui.HighlightText(src.Name), ui.SuccessText(dbDisplay)))
+		} else {
+			ui.ShowInfo(fmt.Sprintf("Entering chat mode. Source: %s", ui.HighlightText(src.Name)))
+		}
 	} else {
 		ui.ShowInfo("Entering free mode (general conversation and Skills only, no SQL execution)")
 	}
 	if len(sess.Messages) > 0 {
 		ui.ShowInfo(fmt.Sprintf("Conversation history: %d messages", len(sess.Messages)))
 	}
-	// Show Skills status
+	// Show Skills status - simplified, only show names
 	metadata := skillsManager.GetMetadata()
 	if len(metadata) > 0 {
-		ui.ShowInfo(fmt.Sprintf("Skills: %d skill(s) available (progressive loading enabled)", len(metadata)))
+		skillNames := make([]string, 0, len(metadata))
 		for _, md := range metadata {
-			ui.ShowInfo(fmt.Sprintf("  - %s: %s", md.Name, md.Description))
+			skillNames = append(skillNames, ui.HighlightText(md.Name))
 		}
+		fmt.Print(ui.InfoText("Skills: "))
+		fmt.Print(strings.Join(skillNames, ", "))
+		fmt.Print(ui.HintText(" (dynamic loading enabled)"))
+		fmt.Println()
 	} else {
-		ui.ShowInfo("Skills: No skills found in ~/.aiqconfig/skills/")
+		fmt.Print(ui.InfoText("Skills: "))
+		fmt.Print(ui.HintText("No skills found"))
+		fmt.Println()
 	}
-	ui.ShowInfo("Chat freely or ask database questions. Use '/history' to view conversation, '/clear' to clear history, or 'exit' to return to main menu.")
+	fmt.Print(ui.HintText("Tip: Use '/help' for commands, ask questions in natural language"))
+	fmt.Println()
 	fmt.Println()
 
 	// Store last query result for view switching
@@ -213,15 +297,55 @@ func RunSQLModeWithSource(providedSourceName string, sessionFile string) error {
 	// Store last generated SQL for execute command
 	var lastGeneratedSQL string
 
-	// Build dynamic prompt based on source availability
+	// Determine actual database being used (may be overridden)
+	actualDatabase := ""
+	if src != nil {
+		if overrideDatabase != "" {
+			actualDatabase = overrideDatabase
+		} else {
+			actualDatabase = src.Database
+		}
+	}
+
+	// Build dynamic prompt based on source availability and actual database
+	// Use different separators/colors to distinguish source and database
 	var buildPrompt func() string
 	if src != nil {
-		buildPrompt = func() string {
-			return ui.InfoText(fmt.Sprintf("aiq[%s]> ", src.Name))
+		if actualDatabase != "" {
+			buildPrompt = func() string {
+				// Use @ to separate source and database for better distinction
+				return ui.InfoText(fmt.Sprintf("aiq[%s@%s]> ", src.Name, actualDatabase))
+			}
+		} else {
+			buildPrompt = func() string {
+				return ui.InfoText(fmt.Sprintf("aiq[%s]> ", src.Name))
+			}
 		}
 	} else {
 		buildPrompt = func() string {
 			return ui.InfoText("aiq> ")
+		}
+	}
+
+	// Define available commands for hint display
+	commands := []string{"/exit", "/help", "/history", "/clear"}
+	commandDescriptions := map[string]string{
+		"/exit":    "Exit chat mode",
+		"/help":    "Show help",
+		"/history": "View history",
+		"/clear":   "Clear history",
+	}
+
+	// Define command completer for Tab completion (only for / commands)
+	// Create completer with descriptions for better UX
+	completer := readline.NewPrefixCompleter()
+	for _, cmd := range commands {
+		desc := commandDescriptions[cmd]
+		if desc != "" {
+			// Add description as a child item for better hint display
+			completer.Children = append(completer.Children, readline.PcItem(cmd, readline.PcItem(desc)))
+		} else {
+			completer.Children = append(completer.Children, readline.PcItem(cmd))
 		}
 	}
 
@@ -231,6 +355,7 @@ func RunSQLModeWithSource(providedSourceName string, sessionFile string) error {
 		HistoryFile:     "",
 		InterruptPrompt: "^C",
 		EOFPrompt:       "exit",
+		AutoComplete:    completer,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize readline: %w", err)
@@ -242,8 +367,8 @@ func RunSQLModeWithSource(providedSourceName string, sessionFile string) error {
 	// For now, prompt is set once at initialization
 
 	for {
-		// Read input line (readline handles Unicode properly)
-		line, err := rl.Readline()
+		// Read input line with hint support
+		line, err := readlineWithHint(rl, buildPrompt, commands, commandDescriptions)
 		if err != nil {
 			if err == readline.ErrInterrupt {
 				// Ctrl+C - continue to next prompt
@@ -266,7 +391,7 @@ func RunSQLModeWithSource(providedSourceName string, sessionFile string) error {
 				}
 			}
 			ui.ShowInfo("Exiting chat mode (EOF).")
-			return nil
+			return ErrReturnToMenu
 		}
 
 		line = strings.TrimSpace(line)
@@ -279,22 +404,39 @@ func RunSQLModeWithSource(providedSourceName string, sessionFile string) error {
 		// Use the line directly as query (readline handles multi-byte characters correctly)
 		query := line
 
-		// Handle special commands
-		if strings.ToLower(query) == "exit" || strings.ToLower(query) == "back" {
-			// Save session before exiting
-			timestamp := session.GetTimestamp()
-			sessionPath, err := session.GetSessionFilePath(timestamp)
-			if err != nil {
-				ui.ShowWarning(fmt.Sprintf("Failed to generate session path: %v", err))
-			} else {
-				if err := session.SaveSession(sess, sessionPath); err != nil {
-					ui.ShowWarning(fmt.Sprintf("Failed to save session: %v", err))
+		// Handle special commands - check /exit and /help first, then text commands
+		if strings.HasPrefix(query, "/") {
+			// Handle /exit command
+			if strings.ToLower(query) == "/exit" {
+				// Save session before exiting
+				timestamp := session.GetTimestamp()
+				sessionPath, err := session.GetSessionFilePath(timestamp)
+				if err != nil {
+					ui.ShowWarning(fmt.Sprintf("Failed to generate session path: %v", err))
 				} else {
-					ui.ShowInfo(fmt.Sprintf("Current session saved to %s", sessionPath))
-					ui.ShowInfo(fmt.Sprintf("Run 'aiq -s %s' to continue.", sessionPath))
+					if err := session.SaveSession(sess, sessionPath); err != nil {
+						ui.ShowWarning(fmt.Sprintf("Failed to save session: %v", err))
+					} else {
+						ui.ShowInfo(fmt.Sprintf("Current session saved to %s", sessionPath))
+						ui.ShowInfo(fmt.Sprintf("Run 'aiq -s %s' to continue.", sessionPath))
+					}
 				}
+				return ErrReturnToMenu
 			}
-			return nil
+			// Handle /help command
+			if strings.ToLower(query) == "/help" {
+				fmt.Println()
+				ui.ShowInfo("Available Commands:")
+				fmt.Println()
+				fmt.Println("  /exit     - Exit chat mode and return to main menu")
+				fmt.Println("  /help     - Show this help message")
+				fmt.Println("  /history  - View conversation history")
+				fmt.Println("  /clear    - Clear conversation history")
+				fmt.Println()
+				fmt.Println("You can also ask questions in natural language to query the database.")
+				fmt.Println()
+				continue
+			}
 		}
 
 		// Handle /history command

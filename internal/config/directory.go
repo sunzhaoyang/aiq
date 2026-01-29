@@ -15,6 +15,7 @@ const (
 	SessionsSubdir  = "sessions"
 	SkillsSubdir    = "skills"
 	ToolsSubdir     = "tools"
+	PromptsSubdir   = "prompts"
 
 	// Config files
 	ConfigFile   = "config.yaml"
@@ -66,6 +67,15 @@ func GetToolsDir() (string, error) {
 	return filepath.Join(baseDir, ToolsSubdir), nil
 }
 
+// GetPromptsDir returns the prompts subdirectory path (~/.aiqconfig/prompts)
+func GetPromptsDir() (string, error) {
+	baseDir, err := GetBaseConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(baseDir, PromptsSubdir), nil
+}
+
 // GetConfigFilePath returns the full path to the configuration file (~/.aiqconfig/config/config.yaml)
 func GetConfigFilePath() (string, error) {
 	configDir, err := GetConfigDir()
@@ -94,6 +104,7 @@ func EnsureDirectoryStructure() error {
 		{"sessions", GetSessionsDir},
 		{"skills", GetSkillsDir},
 		{"tools", GetToolsDir},
+		{"prompts", GetPromptsDir},
 	}
 
 	for _, dir := range dirs {

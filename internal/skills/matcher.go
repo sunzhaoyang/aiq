@@ -19,6 +19,9 @@ import (
 const (
 	// DefaultMaxSkills is the default maximum number of Skills to load per query
 	DefaultMaxSkills = 3
+	// MinRelevanceScore is the minimum relevance score threshold for skill matching
+	// Skills below this threshold will be filtered out
+	MinRelevanceScore = 0.6
 )
 
 // MatchResult represents a match between a query and a Skill
@@ -55,6 +58,7 @@ func (m *Matcher) SetMaxSkills(max int) {
 
 // Match matches a query against Skills metadata and returns the most relevant Skills
 // Tries LLM semantic matching first, falls back to keyword matching if LLM is unavailable or fails
+// LLM is trusted to make semantic relevance decisions - no hardcoded filtering
 func (m *Matcher) Match(query string, metadataList []*Metadata) []*Metadata {
 	if len(metadataList) == 0 {
 		return []*Metadata{}
@@ -63,13 +67,15 @@ func (m *Matcher) Match(query string, metadataList []*Metadata) []*Metadata {
 	// Try LLM semantic matching first if client is available
 	if m.llmClient != nil {
 		matched, err := m.MatchWithLLM(context.Background(), query, metadataList)
-		if err == nil && len(matched) > 0 {
+		if err == nil {
+			// Trust LLM's semantic judgment - return results directly
+			// Even empty results are valid (query may not need any skills)
 			return matched
 		}
 		// If LLM matching fails, fall through to keyword matching
 	}
 
-	// Fallback to keyword matching
+	// Fallback to keyword matching (only when LLM is unavailable)
 	return m.matchWithKeywords(query, metadataList)
 }
 
@@ -148,11 +154,28 @@ func (m *Matcher) MatchWithLLM(ctx context.Context, query string, metadataList [
 
 // callLLMAPI makes a direct API call to LLM for semantic matching
 func (m *Matcher) callLLMAPI(ctx context.Context, prompt string) (string, error) {
-	// Build messages
+	// Build messages with carefully designed system prompt
+	systemPrompt := `You are a skill matcher for a database query assistant. Your task is to determine which skills (if any) would help answer the user's query.
+
+IMPORTANT MATCHING PRINCIPLES:
+1. A skill should only be matched if the user's query DIRECTLY requires what the skill provides
+2. Skills describe specific capabilities or knowledge - match based on ACTUAL NEED, not keyword overlap
+3. Most database queries (SELECT, analyze data, show tables, etc.) do NOT need additional skills
+4. Only match skills when the query explicitly asks for something the skill uniquely provides
+
+EXAMPLES OF CORRECT MATCHING:
+- Query: "How to install MySQL on Mac?" → Match: skills about MySQL installation on Mac
+- Query: "Show all tables" → Match: [] (standard SQL operation, no skill needed)
+- Query: "Analyze sales data by region" → Match: [] (standard SQL analysis, no skill needed)
+- Query: "How to configure replication?" → Match: skills about database replication setup
+
+Return a JSON array of skill names. Return [] if no skills are needed.
+Format: ["skill-name-1", "skill-name-2"] or []`
+
 	messages := []llm.ChatMessage{
 		{
 			Role:    "system",
-			Content: "You are a helpful assistant that matches user queries to relevant Skills based on semantic understanding. Return only a JSON array of Skill names that are relevant to the query. Example: [\"skill-name-1\", \"skill-name-2\"]",
+			Content: systemPrompt,
 		},
 		{
 			Role:    "user",
@@ -270,19 +293,16 @@ func (m *Matcher) buildAPIURL() string {
 // buildMatchingPrompt builds the prompt for LLM semantic matching
 func (m *Matcher) buildMatchingPrompt(query string, metadataList []*Metadata) string {
 	var builder strings.Builder
-	builder.WriteString("User query: ")
+	builder.WriteString("User Query: \"")
 	builder.WriteString(query)
-	builder.WriteString("\n\n")
+	builder.WriteString("\"\n\n")
 	builder.WriteString("Available Skills:\n")
 
 	for i, md := range metadataList {
-		builder.WriteString(fmt.Sprintf("%d. Name: %s\n   Description: %s\n", i+1, md.Name, md.Description))
+		builder.WriteString(fmt.Sprintf("%d. %s - %s\n", i+1, md.Name, md.Description))
 	}
 
-	builder.WriteString("\n")
-	builder.WriteString("Based on semantic understanding, return a JSON array of Skill names that are relevant to the user query.\n")
-	builder.WriteString("Example: [\"skill-name-1\", \"skill-name-2\"]\n")
-	builder.WriteString("Return only the JSON array, no other text.")
+	builder.WriteString("\nWhich skills (if any) does this query DIRECTLY require? Return JSON array of skill names, or [] if none needed.")
 
 	return builder.String()
 }
@@ -303,7 +323,7 @@ func (m *Matcher) parseLLMResponse(response string) ([]string, error) {
 	// If JSON parsing fails, try to extract Skill names from text
 	// Look for patterns like "skill-name" or ["skill-name"]
 	response = strings.TrimSpace(response)
-	
+
 	// Try to find JSON array in the response
 	startIdx := strings.Index(response, "[")
 	endIdx := strings.LastIndex(response, "]")

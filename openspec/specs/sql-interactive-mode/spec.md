@@ -83,11 +83,15 @@ The system SHALL execute SQL queries against the selected database connection.
 - **THEN** system displays clear error message and allows user to retry or modify
 
 ### Requirement: SQL mode interface
-The system SHALL provide an interactive interface for SQL queries with prompt and command handling, displaying current source information.
+The system SHALL provide an interactive interface for SQL queries with prompt, command handling, and tab completion support.
 
 #### Scenario: Display SQL prompt with source
 - **WHEN** SQL mode is active with a database source
 - **THEN** system displays prompt as `aiq[source-name]> ` indicating active source
+
+#### Scenario: Display SQL prompt with source and database
+- **WHEN** SQL mode is active with a database source and database name is available (from source config or `-D` override)
+- **THEN** system displays prompt as `aiq[source-name@database-name]> ` indicating active source and database being used
 
 #### Scenario: Display prompt in free mode
 - **WHEN** SQL mode is active without database source (free mode)
@@ -97,9 +101,52 @@ The system SHALL provide an interactive interface for SQL queries with prompt an
 - **WHEN** user enters SQL query or general query
 - **THEN** system accepts multi-line input until user submits (e.g., Ctrl+D or special command)
 
-#### Scenario: Exit SQL mode
-- **WHEN** user types `exit` or `back` in chat mode
-- **THEN** system returns to main menu
+#### Scenario: Exit SQL mode with /exit command
+- **WHEN** user types `/exit` in chat mode
+- **THEN** system saves session and returns to main menu
+
+#### Scenario: Display help with /help command
+- **WHEN** user types `/help` in chat mode
+- **THEN** system displays list of available commands and their descriptions
+
+#### Scenario: Help command shows available commands
+- **WHEN** user types `/help`
+- **THEN** system displays:
+  - `/exit` - Exit chat mode and return to main menu
+  - `/help` - Show this help message
+  - `/history` - View conversation history
+  - `/clear` - Clear conversation history
+
+#### Scenario: Tab completion for commands
+- **WHEN** user types `/` and presses Tab
+- **THEN** system displays available commands: `/exit`, `/help`, `/history`, `/clear`
+
+#### Scenario: Tab completion completes command name
+- **WHEN** user types `/ex` and presses Tab
+- **THEN** system completes to `/exit`
+
+#### Scenario: Tab completion only for commands
+- **WHEN** user types natural language query (not starting with `/`) and presses Tab
+- **THEN** system does not provide completion (to avoid interfering with natural language input)
+
+#### Scenario: Return to main menu on exit
+- **WHEN** user exits chat mode (via `/exit` or Ctrl+D)
+- **THEN** system returns to main menu instead of exiting the application
+
+### Requirement: SQL query result display
+The system SHALL display SQL query results in mysql client standard table format.
+
+#### Scenario: Display results in mysql client format
+- **WHEN** SQL query returns data
+- **THEN** system displays results in ASCII table format using `+`, `-`, `|` borders (mysql client style)
+
+#### Scenario: Display row count after results
+- **WHEN** SQL query executes successfully with results
+- **THEN** system displays "N row(s) in set" after the table
+
+#### Scenario: No LLM processing of displayed results
+- **WHEN** SQL query results are displayed to user
+- **THEN** LLM does NOT repeat, list, or summarize the already-displayed data
 
 ### Requirement: Database schema context
 The system SHALL provide database schema information to LLM for accurate SQL generation when a database source is selected.
@@ -119,19 +166,19 @@ The system SHALL provide database schema information to LLM for accurate SQL gen
 ## MODIFIED Requirements
 
 ### Requirement: Natural language to SQL translation
-The system SHALL translate user's natural language questions into SQL queries using LLM, with Skills-enhanced prompts, supporting both database mode and free mode.
+The system SHALL translate user's natural language questions into SQL queries using LLM, with Skills-enhanced prompts, supporting both database mode and free mode, with enhanced mode awareness and tool usage understanding.
 
 #### Scenario: Submit natural language query in database mode
 - **WHEN** user enters a natural language question in chat mode with database source
-- **THEN** system sends question to LLM API with database schema context, matched Skills content, and available tools (including execute_sql)
+- **THEN** system sends question to LLM API with database schema context, matched Skills content, and available tools (including execute_sql), with explicit guidance that execute_sql tool should be used for database queries
 
 #### Scenario: Submit natural language query in free mode
 - **WHEN** user enters a natural language question in free chat mode
-- **THEN** system sends question to LLM API with matched Skills content and available tools (excluding execute_sql)
+- **THEN** system sends question to LLM API with matched Skills content and available tools (excluding execute_sql), with explicit guidance that database queries are invalid in free mode
 
 #### Scenario: Match Skills to query
 - **WHEN** user submits a natural language query
-- **THEN** system matches query against Skills metadata using LLM semantic matching and loads relevant Skills content
+- **THEN** system matches query against Skills metadata using LLM semantic matching with precision filtering and loads relevant Skills content
 
 #### Scenario: Build prompt with Skills
 - **WHEN** system prepares prompt for LLM translation
@@ -148,3 +195,15 @@ The system SHALL translate user's natural language questions into SQL queries us
 #### Scenario: Confirm SQL execution
 - **WHEN** SQL is translated
 - **THEN** system prompts user to confirm execution or modify query
+
+#### Scenario: LLM understands tool availability
+- **WHEN** system is in database mode and user asks database query
+- **THEN** LLM uses execute_sql tool, NOT execute_command with mysql/psql commands
+
+#### Scenario: LLM validates query appropriateness
+- **WHEN** user submits query in free mode that requires database
+- **THEN** LLM recognizes query as invalid for current mode and asks clarifying question instead of attempting tool execution
+
+#### Scenario: LLM distinguishes SQL tool from shell commands
+- **WHEN** user asks database query in database mode
+- **THEN** LLM uses execute_sql tool for SQL queries, and only uses execute_command for system operations (not database queries)

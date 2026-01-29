@@ -46,23 +46,27 @@ The system SHALL load Skills progressively based on query relevance, not all at 
 - **THEN** system caches loaded content to avoid re-reading from disk
 
 ### Requirement: Skills matching algorithm
-The system SHALL match user queries to Skills using LLM-based semantic relevance judgment, with keyword-based matching as fallback.
+The system SHALL match user queries to Skills using LLM-based semantic relevance judgment with precision filtering, with keyword-based matching as fallback.
 
-#### Scenario: LLM semantic matching
+#### Scenario: LLM semantic matching with precision filter
 - **WHEN** user submits a query
-- **THEN** system sends query and all Skills metadata to LLM for semantic relevance judgment
+- **THEN** system sends query and all Skills metadata to LLM for semantic relevance judgment, then applies precision filters (query type, relevance threshold)
 
-#### Scenario: LLM returns relevant Skills
+#### Scenario: LLM returns relevant Skills with filtering
 - **WHEN** LLM processes matching request
-- **THEN** LLM returns list of relevant Skill names (top N, default 3) based on semantic understanding
+- **THEN** system filters LLM results based on query type and relevance threshold, returning only highly relevant Skills
+
+#### Scenario: Filter out irrelevant skills for simple queries
+- **WHEN** user submits simple information query (e.g., "show tables") and LLM matches setup/installation skills
+- **THEN** system filters out setup/installation skills, returning empty or only directly relevant skills
 
 #### Scenario: Fallback to keyword matching
 - **WHEN** LLM semantic matching fails or is unavailable
-- **THEN** system falls back to keyword-based matching algorithm (exact name match > partial name match > description keyword match)
+- **THEN** system falls back to keyword-based matching algorithm with query type filtering
 
-#### Scenario: Select top N Skills
-- **WHEN** LLM returns relevant Skills or keyword matching completes
-- **THEN** system selects top N most relevant Skills (default: 3) for loading
+#### Scenario: Select top N Skills after filtering
+- **WHEN** filtering completes
+- **THEN** system selects top N most relevant Skills (default: 3) from filtered results for loading
 
 #### Scenario: Cache matching results
 - **WHEN** same query is matched multiple times

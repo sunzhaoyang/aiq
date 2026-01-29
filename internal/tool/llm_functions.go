@@ -16,23 +16,23 @@ func GetLLMFunctions() []llm.Function {
 func GetLLMFunctionsWithBuiltin(dbConn *db.Connection) []llm.Function {
 	tools := []llm.Function{}
 
-	// Only include execute_sql if database connection exists
-	if dbConn != nil {
-		tools = append(tools, llm.Function{
-			Name:        "execute_sql",
-			Description: "Execute a SQL query against the database and return the results. Use this when the user wants to query the database.",
-			Parameters: map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"sql": map[string]interface{}{
-						"type":        "string",
-						"description": "The SQL query to execute",
+		// Only include execute_sql if database connection exists
+		if dbConn != nil {
+			tools = append(tools, llm.Function{
+				Name:        "execute_sql",
+				Description: "Execute a SQL query against the database and return the results. Available ONLY in database mode when a database source is selected. Use this when the user wants to query the database.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"sql": map[string]interface{}{
+							"type":        "string",
+							"description": "The SQL query to execute",
+						},
 					},
+					"required": []string{"sql"},
 				},
-				"required": []string{"sql"},
-			},
-		})
-	}
+			})
+		}
 
 	// Add render_table and render_chart (available in both modes)
 	tools = append(tools, llm.Function{

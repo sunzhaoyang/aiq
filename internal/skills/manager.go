@@ -2,7 +2,6 @@ package skills
 
 import (
 	"fmt"
-	"log"
 	"sync"
 	"time"
 )
@@ -51,12 +50,7 @@ func (m *Manager) Initialize() error {
 	}
 
 	m.metadataList = metadata
-	if len(metadata) > 0 {
-		log.Printf("Loaded %d skill(s) metadata (progressive loading enabled)", len(metadata))
-		for _, md := range metadata {
-			log.Printf("  - %s: %s", md.Name, md.Description)
-		}
-	}
+	// Don't log metadata loading - it's too verbose. Skills will be shown when dynamically loaded.
 
 	return nil
 }
@@ -96,7 +90,7 @@ func (m *Manager) LoadSkill(name string) (*Skill, error) {
 	}
 
 	// Load full content (progressive loading: only now do we read the full file)
-	log.Printf("Loading full content for skill: %s", name)
+	// Don't log here - loading will be shown in tool_handler.go with description
 	skill, err := LoadSkillContent(metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load skill content: %w", err)
@@ -104,7 +98,6 @@ func (m *Manager) LoadSkill(name string) (*Skill, error) {
 
 	// Cache it
 	m.cache[name] = skill
-	log.Printf("Skill '%s' loaded and cached (content length: %d chars)", name, len(skill.Content))
 
 	return skill, nil
 }

@@ -7,12 +7,28 @@ import (
 	"strings"
 
 	"github.com/aiq/aiq/internal/cli"
+	"github.com/aiq/aiq/internal/config"
+	"github.com/aiq/aiq/internal/prompt"
 	"github.com/aiq/aiq/internal/source"
 	"github.com/aiq/aiq/internal/sql"
 	"github.com/aiq/aiq/internal/ui"
 )
 
 func main() {
+	// Ensure directory structure exists (needed for prompt initialization)
+	if err := config.EnsureDirectoryStructure(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to create config directory structure: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Initialize prompt loader to ensure default prompt files are created
+	// This happens at startup so prompts are available even if user doesn't enter chat mode
+	_, err := prompt.NewLoader()
+	if err != nil {
+		// Log warning but don't fail - prompts will use fallback defaults
+		fmt.Printf("Warning: Failed to initialize prompts: %v. Using default prompts.\n", err)
+	}
+
 	// Parse database connection arguments first (before flag.Parse to avoid conflicts)
 	dbArgs, err := cli.ParseDatabaseArgs()
 	if err != nil {
@@ -85,7 +101,13 @@ func main() {
 		}
 
 		// Directly enter chat mode with the created source
-		if err := sql.RunSQLModeWithSource(sourceName, sessionFile); err != nil {
+		// Pass Database from dbArgs as overrideDatabase to use for this session only
+		if err := sql.RunSQLModeWithSource(sourceName, sessionFile, dbArgs.Database); err != nil {
+			// Check if error is ErrReturnToMenu - this is expected when user exits chat mode
+			if err == sql.ErrReturnToMenu {
+				// Normal return, exit gracefully
+				return
+			}
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}

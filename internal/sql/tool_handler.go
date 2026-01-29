@@ -22,6 +22,7 @@ type ToolHandler struct {
 	matcher       *skills.Matcher
 	promptBuilder *prompt.Builder
 	compressor    *prompt.Compressor
+	promptLoader  *prompt.Loader
 }
 
 // NewToolHandler creates a new tool handler
@@ -34,12 +35,21 @@ func NewToolHandler(conn *db.Connection, skillsManager *skills.Manager, llmClien
 	if llmClient != nil {
 		compressor.SetLLMClient(llmClient)
 	}
+	// Initialize prompt loader (loads prompts from ~/.aiqconfig/prompts)
+	promptLoader, err := prompt.NewLoader()
+	if err != nil {
+		// Log error but continue with default prompts (fallback behavior)
+		// This allows the system to work even if prompt files can't be loaded
+		fmt.Printf("Warning: Failed to load prompts: %v. Using default prompts.\n", err)
+		promptLoader = nil
+	}
 	return &ToolHandler{
 		conn:          conn,
 		skillsManager: skillsManager,
 		matcher:       matcher,
 		promptBuilder: prompt.NewBuilder(""), // Will be set in HandleToolCallLoop
 		compressor:    compressor,
+		promptLoader:  promptLoader,
 	}
 }
 
@@ -391,92 +401,81 @@ func (h *ToolHandler) HandleToolCallLoop(ctx context.Context, llmClient *llm.Cli
 	// Determine mode: free mode or database mode
 	isFreeMode := schemaContext == "" || h.conn == nil
 
-	// Base system prompt - different for free mode vs database mode
+	// Load prompts from files or use defaults
 	var baseSystemPrompt string
-	if isFreeMode {
-		baseSystemPrompt = `You are a helpful AI assistant. You can have natural conversations with users and help them with various tasks using available tools.
+	var commonPrompt string
 
-MODE: FREE MODE - No database connection available. SQL execution is not available.
-
-Available tools include:
-- execute_command: Execute shell commands (for installation, setup, system operations)
-- http_request: Make HTTP requests
-- file_operations: Read/write files
-
-IMPORTANT: The execute_sql tool is NOT available in free mode. If the user asks for database queries, inform them that they need to select a database source first.`
+	if h.promptLoader != nil {
+		// Use prompts loaded from ~/.aiqconfig/prompts
+		if isFreeMode {
+			baseSystemPrompt = h.promptLoader.GetFreeModeBasePrompt()
+		} else {
+			// Get database base prompt + database-specific patch
+			baseSystemPrompt = h.promptLoader.GetDatabaseModeBasePrompt(databaseType, schemaContext)
+		}
+		commonPrompt = h.promptLoader.GetCommonPrompt()
 	} else {
-		baseSystemPrompt = fmt.Sprintf(`You are a helpful AI assistant for database queries. You can have natural conversations with users, or help them query databases using available tools.
+		// Fallback to hardcoded defaults if prompt loader failed
+		if isFreeMode {
+			baseSystemPrompt = `<MODE>
+FREE MODE - No database connection available. SQL execution is not available.
+</MODE>
 
-MODE: DATABASE MODE - Connected to a database.
+<ROLE>
+You are a helpful AI assistant. You can have natural conversations and help with system operations using available tools.
+</ROLE>
 
-IMPORTANT CONTEXT:
-- Database engine type: %s (this is the database system type like MySQL/PostgreSQL/seekdb, NOT a schema or database name)
-- Current database connection information is provided below
+<TOOLS>
+- execute_command: System operations (install, setup, configuration). Not for database queries.
+- http_request: Make HTTP requests.
+- file_operations: Read/write files.
+</TOOLS>
 
-Database connection and schema information:
+<POLICY>
+- If the user asks for database operations, explain that no database is connected and ask whether they want to select a source.
+- Do not guess database commands or run mysql/psql in free mode.
+- If the request is ambiguous for the current mode, ask a clarifying question before acting.
+</POLICY>`
+		} else {
+			baseSystemPrompt = fmt.Sprintf(`<MODE>
+DATABASE MODE - Connected to a database.
+</MODE>
+
+<ROLE>
+You are a helpful AI assistant for database queries and related tasks.
+</ROLE>
+
+<CONTEXT>
+- Database engine type: %s
+- Database connection and schema information:
 %s
+</CONTEXT>
 
-CRITICAL RULES FOR SQL GENERATION:
-1. Database type "%s" is the ENGINE TYPE (like MySQL, PostgreSQL, seekdb), NOT a database name or schema name
-2. When user asks "show tables" or "list tables", use execute_sql tool with: SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() OR use SHOW TABLES (for MySQL/seekdb)
-3. NEVER use the database engine type (like "%s") as a schema name in WHERE table_schema = '%s'
-4. Always use the actual database name from the connection context, or use DATABASE() function to get current database
-5. For MySQL/seekdb: Use SHOW TABLES; or SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE();
-6. For PostgreSQL: Use SELECT tablename FROM pg_tables WHERE schemaname = 'public'; or SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';
+<POLICY>
+- Use execute_sql for database queries. Do not use execute_command to run mysql/psql.
+- Respect engine-specific syntax. If unsure, ask a clarifying question or rely on schema context.
+- If a request is not a database query, use the appropriate non-SQL tools.
+</POLICY>
 
-Use the available tools to help users. Available tools include:
-- execute_sql: Execute SQL queries against the database
-- execute_command: Execute shell commands (for installation, setup, system operations)
-- http_request: Make HTTP requests
-- file_operations: Read/write files
-- render_table: Format query results as a table
-- render_chart: Format query results as a chart
+<TOOLS>
+- execute_sql: Execute SQL queries against the database.
+- render_table: Format query results as a table.
+- render_chart: Format query results as a chart when user explicitly asks for visualization.
+- execute_command: System operations (install, setup, configuration). Not for database queries.
+- http_request: Make HTTP requests.
+- file_operations: Read/write files.
+</TOOLS>
+`, databaseType, schemaContext)
+		}
 
-For database queries (database mode only), follow this flow:
-1. Use execute_sql to query the database (this returns data, does NOT display it)
-2. Decide how to present results:
-   - Default: use render_table to format results as a table string when there are multiple rows/columns.
-   - Use render_chart to format results as a chart string only when the user explicitly asks for a chart.
-   - Summarize in text only when the user explicitly requests a summary or when data is trivial (e.g., a single value).
-3. If you call render_table or render_chart, include the returned output string in your final response.
+		// Fallback common prompt
+		commonPrompt = `<EXECUTION>
+- For system operations, use execute_command with explicit commands.
+- If a command requires elevated privileges or interactive input, ask the user to run it manually and explain why.
+- Do not fabricate command outputs. Use tool results to decide the next step.
+</EXECUTION>`
 
-If user requests SQL execution in free mode, inform them: "SQL execution is not available in free mode. Please select a database source to enable SQL queries."
-`, databaseType, schemaContext, databaseType, databaseType, databaseType)
 	}
-
-	// Common prompt sections for both modes
-	commonPrompt := `
-For system operations (installation, setup, configuration):
-- When user requests an ACTION (install, setup, configure, run, etc.), use execute_command to execute the commands from Skills.
-- Execute commands step by step, checking results before proceeding to the next step.
-- Do NOT just show commands to the user - EXECUTE them automatically.
-- Only show commands if execution fails and you need to explain the error, or if user explicitly asks for instructions.
-
-IMPORTANT: Commands that require manual execution:
-- Commands requiring sudo privileges: If execute_command returns an error indicating the command requires sudo, inform the user that they need to run it manually in their terminal with sudo privileges.
-- Interactive commands: Some commands require interactive input (like mysql_secure_installation, passwd, etc.) and cannot be executed non-interactively.
-- If execute_command returns an error indicating the command requires interactive input or sudo, inform the user that this command needs to be run manually in their terminal.
-- For these commands, suggest alternatives when possible:
-  * For mysql_secure_installation: Guide the user to run it manually, or use SQL commands to secure MySQL instead.
-  * For sudo commands: Explain that they need to be run manually with sudo privileges.
-  * For other interactive commands: Explain that they need to be run manually, or suggest non-interactive alternatives if available.
-
-How to interpret execute_command results:
-- The tool returns: exit_code (0 = success, non-zero = failure), stdout (standard output), stderr (standard error), and status ("success" or "error").
-- Read exit_code, stdout, and stderr to understand what happened.
-- Based on the command output and exit_code, decide the next step:
-  * If exit_code=0: Command succeeded. Read stdout/stderr to understand the result, then proceed accordingly.
-  * If exit_code!=0: Command failed. Read stdout/stderr for error details, then decide whether to retry, modify the command, or try a different approach.
-- Use your judgment to determine when a task is complete and when to stop or continue.
-
-When to stop tool calling and return final response:
-- Use your judgment to determine when a task is complete based on tool results and user's request.
-- For SQL queries: After execute_sql succeeds, decide whether to format results (render_table/render_chart) or summarize, then return final response.
-- For commands: After execute_command completes, read the output (stdout/stderr) and exit_code to understand the result, then decide next steps or complete the task.
-- If a tool fails, check the error details and decide whether to retry, modify, or report the error to the user.
-- Once the user's request is fulfilled or cannot be completed, return a final response and stop calling tools.
-
-Remember: Tools provide information (exit_code, stdout, stderr, status). You interpret this information and decide what to do next. Use your judgment to determine when tasks are complete.`
 
 	// Combine base prompt with common sections
 	baseSystemPrompt = baseSystemPrompt + commonPrompt
@@ -497,8 +496,10 @@ Remember: Tools provide information (exit_code, stdout, stderr, status). You int
 			if len(matchedMetadata) > 0 {
 				// Track usage for matched Skills
 				skillNames := make([]string, len(matchedMetadata))
+				skillMetadataMap := make(map[string]*skills.Metadata) // Map for quick lookup
 				for i, md := range matchedMetadata {
 					skillNames[i] = md.Name
+					skillMetadataMap[md.Name] = md
 					// Track usage
 					h.skillsManager.TrackUsage(md.Name, userInput)
 					// Set priority: matched Skills are relevant
@@ -512,8 +513,22 @@ Remember: Tools provide information (exit_code, stdout, stderr, status). You int
 					for _, skill := range loadedSkills {
 						h.skillsManager.SetPriority(skill.Name, skills.PriorityActive)
 					}
-					// Show which Skills were loaded
-					ui.ShowInfo(fmt.Sprintf("Loaded %d skill(s) for this query: %v", len(loadedSkills), skillNames))
+					// Show which Skills were loaded with descriptions
+					if len(loadedSkills) > 0 {
+						fmt.Print(ui.InfoText("Loaded "))
+						fmt.Print(ui.HighlightText(fmt.Sprintf("%d skill(s)", len(loadedSkills))))
+						fmt.Print(ui.InfoText(": "))
+						skillDisplays := make([]string, 0, len(loadedSkills))
+						for _, skill := range loadedSkills {
+							if md, exists := skillMetadataMap[skill.Name]; exists && md.Description != "" {
+								skillDisplays = append(skillDisplays, fmt.Sprintf("%s - %s", ui.HighlightText(skill.Name), ui.HintText(md.Description)))
+							} else {
+								skillDisplays = append(skillDisplays, ui.HighlightText(skill.Name))
+							}
+						}
+						fmt.Print(strings.Join(skillDisplays, ", "))
+						fmt.Println()
+					}
 				} else {
 					ui.ShowWarning(fmt.Sprintf("Failed to load some skills: %v", err))
 				}
@@ -715,7 +730,8 @@ Remember: Tools provide information (exit_code, stdout, stderr, status). You int
 				}
 			}
 
-			// Store query result if it's execute_sql
+			// For execute_sql: directly render table output (mysql client style)
+			// and simplify the result sent to LLM
 			if toolCall.Function.Name == "execute_sql" && err == nil {
 				var resultData map[string]interface{}
 				if err := json.Unmarshal(toolResult, &resultData); err == nil {
@@ -740,6 +756,27 @@ Remember: Tools provide information (exit_code, stdout, stderr, status). You int
 								Columns: cols,
 								Rows:    rowsData,
 							}
+
+							// Directly render table output (mysql client style)
+							if len(rowsData) > 0 {
+								fmt.Println()
+								tableOutput, tableErr := tool.RenderTableString(cols, rowsData)
+								if tableErr == nil {
+									fmt.Println(tableOutput)
+								}
+								fmt.Printf("%d row(s) in set\n", len(rowsData))
+							}
+
+							// Simplify result for LLM - don't send raw data
+							// Explicitly instruct LLM not to repeat the data
+							simplifiedResult := map[string]interface{}{
+								"status":    "success",
+								"row_count": len(rowsData),
+								"displayed": true,
+								"instruction": "Results already displayed to user in table format. Do NOT list, repeat, or summarize the data. Just confirm completion or ask if user needs anything else.",
+							}
+							simplifiedJSON, _ := json.Marshal(simplifiedResult)
+							toolResult = json.RawMessage(simplifiedJSON)
 						}
 					}
 				}

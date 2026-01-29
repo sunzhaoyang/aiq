@@ -224,7 +224,7 @@ func (t *CommandTool) GetDefinition() map[string]interface{} {
 		"type": "function",
 		"function": map[string]interface{}{
 			"name":        "execute_command",
-			"description": "Execute shell commands. Most commands are allowed, but dangerous commands (like rm, sudo, dd) are blocked for security. Use this to run scripts or system commands.",
+			"description": "Execute shell commands for system operations (installation, setup, configuration). Use for system operations, NOT for database queries. Most commands are allowed, but dangerous commands (like rm, sudo, dd) are blocked for security.",
 			"parameters": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

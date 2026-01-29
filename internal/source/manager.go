@@ -200,3 +200,61 @@ func AddSourceWithAutoName(source *Source) (string, error) {
 	source.Name = name
 	return name, AddSource(source)
 }
+
+// UpdateSource updates an existing source by name
+func UpdateSource(name string, updated *Source) error {
+	sources, err := LoadSources()
+	if err != nil {
+		return err
+	}
+
+	// Find the source to update
+	found := false
+	var oldSource *Source
+	for i, s := range sources {
+		if s.Name == name {
+			found = true
+			oldSource = sources[i]
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("source with name '%s' not found", name)
+	}
+
+	// Check uniqueness constraints
+	// 1. If name changed, check new name doesn't exist
+	if updated.Name != name {
+		for _, s := range sources {
+			if s.Name == updated.Name {
+				return fmt.Errorf("source with name '%s' already exists", updated.Name)
+			}
+		}
+	}
+
+	// 2. If host/port/username changed, check connection uniqueness
+	if updated.Host != oldSource.Host || updated.Port != oldSource.Port || updated.Username != oldSource.Username {
+		for _, s := range sources {
+			// Skip the source being updated
+			if s.Name == name {
+				continue
+			}
+			// Check if another source has the same connection params
+			if s.Host == updated.Host && s.Port == updated.Port && s.Username == updated.Username {
+				return fmt.Errorf("source with connection '%s:%d@%s' already exists (name: '%s')", updated.Host, updated.Port, updated.Username, s.Name)
+			}
+		}
+	}
+
+	// Update the source
+	updated.Name = updated.Name // Ensure name is set
+	for i, s := range sources {
+		if s.Name == name {
+			sources[i] = updated
+			break
+		}
+	}
+
+	return SaveSources(sources)
+}

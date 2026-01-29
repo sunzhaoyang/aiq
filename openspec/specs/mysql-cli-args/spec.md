@@ -23,6 +23,18 @@ The system SHALL support MySQL-compatible command-line connection arguments (`-h
 - **WHEN** user runs `aiq -D aiq`
 - **THEN** system parses `-D` flag and stores database name value
 
+#### Scenario: Use -D database for current session only
+- **WHEN** user runs `aiq -h host -u user -P port -ppassword -D database1` and source already exists (based on host-port-username)
+- **THEN** system uses `database1` for the current chat session, overriding the source's stored database value
+
+#### Scenario: -D parameter does not persist to source
+- **WHEN** user runs `aiq -h host -u user -P port -ppassword -D database1` and source already exists
+- **THEN** system does not update the source's database field in `sources.yaml`, only uses `database1` for the current session
+
+#### Scenario: Source uniqueness based on host-port-username
+- **WHEN** user runs `aiq -h host -u user -P port -ppassword -D database1` multiple times with different `-D` values
+- **THEN** system reuses the same source (based on host-port-username) but uses the `-D` value specified in each command for that session
+
 #### Scenario: Parse combined MySQL arguments
 - **WHEN** user runs `aiq -h 11.124.9.201 -u root -P 2900 -ptest1111 -D aiq` (note: `-p` and password have no space)
 - **THEN** system parses all flags and stores all connection parameters

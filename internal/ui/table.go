@@ -3,15 +3,12 @@ package ui
 import (
 	"fmt"
 	"strings"
-
-	"github.com/charmbracelet/lipgloss"
 )
 
-// Table represents a formatted table
+// Table represents a formatted table (mysql client style)
 type Table struct {
 	headers []string
 	rows    [][]string
-	style   lipgloss.Style
 }
 
 // NewTable creates a new table
@@ -19,7 +16,6 @@ func NewTable(headers []string) *Table {
 	return &Table{
 		headers: headers,
 		rows:    make([][]string, 0),
-		style:   lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("8")),
 	}
 }
 
@@ -32,7 +28,7 @@ func (t *Table) AddRow(row []string) {
 	t.rows = append(t.rows, row[:len(t.headers)])
 }
 
-// Render renders the table as a string
+// Render renders the table as a string (mysql client style: +---+---+)
 func (t *Table) Render() string {
 	if len(t.headers) == 0 {
 		return ""
@@ -43,7 +39,7 @@ func (t *Table) Render() string {
 	for i, header := range t.headers {
 		widths[i] = len(header)
 	}
-	
+
 	for _, row := range t.rows {
 		for i, cell := range row {
 			if len(cell) > widths[i] {
@@ -52,50 +48,46 @@ func (t *Table) Render() string {
 		}
 	}
 
-	// Add padding
-	for i := range widths {
-		widths[i] += 2
+	// Build separator line: +------+------+
+	var sepBuilder strings.Builder
+	sepBuilder.WriteString("+")
+	for _, w := range widths {
+		sepBuilder.WriteString(strings.Repeat("-", w+2))
+		sepBuilder.WriteString("+")
 	}
+	separator := sepBuilder.String()
 
 	// Build table
 	var builder strings.Builder
-	
-	// Header row
-	headerCells := make([]string, len(t.headers))
+
+	// Top border
+	builder.WriteString(separator)
+	builder.WriteString("\n")
+
+	// Header row: | col1 | col2 |
+	builder.WriteString("|")
 	for i, header := range t.headers {
-		headerCells[i] = Highlight.Render(fmt.Sprintf(" %-*s ", widths[i]-2, header))
+		builder.WriteString(fmt.Sprintf(" %-*s |", widths[i], header))
 	}
-	builder.WriteString("┌" + strings.Repeat("─", widths[0]))
-	for i := 1; i < len(widths); i++ {
-		builder.WriteString("┬" + strings.Repeat("─", widths[i]))
-	}
-	builder.WriteString("┐\n")
-	builder.WriteString("│" + strings.Join(headerCells, "│") + "│\n")
-	
-	// Separator
-	builder.WriteString("├" + strings.Repeat("─", widths[0]))
-	for i := 1; i < len(widths); i++ {
-		builder.WriteString("┼" + strings.Repeat("─", widths[i]))
-	}
-	builder.WriteString("┤\n")
-	
+	builder.WriteString("\n")
+
+	// Separator after header
+	builder.WriteString(separator)
+	builder.WriteString("\n")
+
 	// Data rows
 	for _, row := range t.rows {
-		cells := make([]string, len(row))
+		builder.WriteString("|")
 		for i, cell := range row {
-			cells[i] = fmt.Sprintf(" %-*s ", widths[i]-2, cell)
+			builder.WriteString(fmt.Sprintf(" %-*s |", widths[i], cell))
 		}
-		builder.WriteString("│" + strings.Join(cells, "│") + "│\n")
+		builder.WriteString("\n")
 	}
-	
-	// Footer
-	builder.WriteString("└" + strings.Repeat("─", widths[0]))
-	for i := 1; i < len(widths); i++ {
-		builder.WriteString("┴" + strings.Repeat("─", widths[i]))
-	}
-	builder.WriteString("┘\n")
 
-	return t.style.Render(builder.String())
+	// Bottom border
+	builder.WriteString(separator)
+
+	return builder.String()
 }
 
 // PrintTable prints a table directly
@@ -104,5 +96,5 @@ func PrintTable(headers []string, rows [][]string) {
 	for _, row := range rows {
 		table.AddRow(row)
 	}
-	fmt.Print(table.Render())
+	fmt.Println(table.Render())
 }

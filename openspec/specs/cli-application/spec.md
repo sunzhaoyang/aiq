@@ -8,11 +8,11 @@ The system SHALL provide a command-line executable named `aiq` that launches an 
 - **THEN** system displays the main menu with available options
 
 ### Requirement: Main menu system
-The system SHALL display a main menu with four core functions: `config`, `source`, `sql`, and `exit`.
+The system SHALL display a main menu with core functions: `config`, `source`, `chat`, and `exit`, with unified navigation back from all sub-functions.
 
 #### Scenario: Display main menu
 - **WHEN** CLI application starts
-- **THEN** system shows menu with options: config, source, sql, exit
+- **THEN** system shows menu with options: config, source, chat, exit
 
 #### Scenario: Navigate to config menu
 - **WHEN** user selects `config` from main menu
@@ -22,9 +22,13 @@ The system SHALL display a main menu with four core functions: `config`, `source
 - **WHEN** user selects `source` from main menu
 - **THEN** system displays data source management submenu
 
-#### Scenario: Navigate to SQL mode
-- **WHEN** user selects `sql` from main menu
-- **THEN** system prompts user to select a data source (if none selected) and enters SQL interactive mode
+#### Scenario: Navigate to chat mode
+- **WHEN** user selects `chat` from main menu
+- **THEN** system prompts user to select a data source (if none selected) and enters chat mode
+
+#### Scenario: Return from chat mode to main menu
+- **WHEN** user exits chat mode (via `/exit` or Ctrl+D)
+- **THEN** system returns to main menu instead of exiting the application
 
 #### Scenario: Exit application
 - **WHEN** user selects `exit` from main menu

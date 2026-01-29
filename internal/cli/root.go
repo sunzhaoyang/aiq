@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/aiq/aiq/internal/config"
+	"github.com/aiq/aiq/internal/prompt"
 	"github.com/aiq/aiq/internal/sql"
 	"github.com/aiq/aiq/internal/ui"
 )
@@ -15,6 +16,14 @@ func Run(sessionFile string) error {
 	// Ensure directory structure exists
 	if err := config.EnsureDirectoryStructure(); err != nil {
 		return fmt.Errorf("failed to create config directory structure: %w", err)
+	}
+
+	// Initialize prompt loader to ensure default prompt files are created
+	// This happens at startup so prompts are available even if user doesn't enter chat mode
+	_, err := prompt.NewLoader()
+	if err != nil {
+		// Log warning but don't fail - prompts will use fallback defaults
+		fmt.Printf("Warning: Failed to initialize prompts: %v. Using default prompts.\n", err)
 	}
 
 	// Check for first-run and run wizard if needed
@@ -74,7 +83,12 @@ func Run(sessionFile string) error {
 			}
 		case "chat":
 			if err := sql.RunSQLMode(sessionFile); err != nil {
-				ui.ShowError(err.Error())
+				// Check if error is ErrReturnToMenu - this is expected and means return to main menu
+				if err == sql.ErrReturnToMenu {
+					// Normal return to menu, don't show error
+				} else {
+					ui.ShowError(err.Error())
+				}
 			}
 			// Clear sessionFile after first use (only restore once)
 			sessionFile = ""

@@ -44,20 +44,35 @@ func ShowMenu(label string, items []MenuItem) (string, error) {
 	return items[index].Value, nil
 }
 
-// ShowConfirm displays a confirmation prompt
+// ShowConfirm displays a confirmation prompt using readline for cleaner output
 func ShowConfirm(message string) (bool, error) {
-	prompt := promptui.Prompt{
-		Label:     message,
-		IsConfirm: true,
-		Default:   "n",
-	}
-
-	result, err := prompt.Run()
+	// Use readline for cleaner single-line confirmation
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          fmt.Sprintf("%s [y/N]: ", message),
+		HistoryFile:     "",
+		InterruptPrompt: "^C",
+		EOFPrompt:       "",
+	})
 	if err != nil {
+		// Fallback to simple fmt.Scanln if readline fails
+		fmt.Printf("%s [y/N]: ", message)
+		var input string
+		fmt.Scanln(&input)
+		input = strings.ToLower(strings.TrimSpace(input))
+		return input == "y" || input == "yes", nil
+	}
+	defer rl.Close()
+
+	line, err := rl.Readline()
+	if err != nil {
+		if err == readline.ErrInterrupt {
+			return false, fmt.Errorf("interrupted")
+		}
 		return false, err
 	}
 
-	return strings.ToLower(result) == "y" || strings.ToLower(result) == "yes", nil
+	result := strings.ToLower(strings.TrimSpace(line))
+	return result == "y" || result == "yes", nil
 }
 
 // ShowInput displays an input prompt
