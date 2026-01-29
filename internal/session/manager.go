@@ -82,7 +82,7 @@ func validateSession(session *Session) error {
 }
 
 // GetSessionFilePath generates a session file path with timestamp
-// Format: ~/.aiqconfig/sessions/session_YYYYMMDDHHMMSS.json
+// Format: ~/.aiq/sessions/session_YYYYMMDDHHMMSS.json
 func GetSessionFilePath(timestamp string) (string, error) {
 	sessionsDir, err := config.GetSessionsDir()
 	if err != nil {

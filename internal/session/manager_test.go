@@ -207,10 +207,10 @@ func TestGetSessionFilePath(t *testing.T) {
 		t.Errorf("Expected filename '%s', got '%s'", expectedFileName, filepath.Base(path))
 	}
 	
-	// Verify it contains .aiqconfig
+	// Verify it contains .aiq
 	homeDir, err := os.UserHomeDir()
 	if err == nil {
-		expectedPrefix := filepath.Join(homeDir, ".aiqconfig")
+		expectedPrefix := filepath.Join(homeDir, ".aiq")
 		if !filepath.HasPrefix(path, expectedPrefix) {
 			t.Errorf("Path should start with %s, got %s", expectedPrefix, path)
 		}
