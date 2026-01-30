@@ -22,19 +22,47 @@ BINARY_NAME="aiq"
 # Detect latest version
 echo "Detecting latest version..."
 # Try releases API first
-LATEST_VERSION=$(curl -s --max-time 10 "${GITHUB_API}" 2>/dev/null | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+API_RESPONSE=$(curl -s --max-time 10 "${GITHUB_API}" 2>&1)
+CURL_EXIT_CODE=$?
+TAGS_EXIT_CODE=0
+
+if [ $CURL_EXIT_CODE -ne 0 ]; then
+    echo -e "${YELLOW}Warning: curl failed with exit code ${CURL_EXIT_CODE}${NC}"
+    if [ -n "$API_RESPONSE" ]; then
+        echo -e "${YELLOW}Response: ${API_RESPONSE}${NC}"
+    fi
+fi
+
+LATEST_VERSION=$(echo "$API_RESPONSE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
 
 # Fallback to tags API if releases API fails
 if [ -z "$LATEST_VERSION" ]; then
     echo -e "${YELLOW}Releases API failed, trying tags API...${NC}"
-    LATEST_VERSION=$(curl -s --max-time 10 "https://api.github.com/repos/${REPO}/tags" 2>/dev/null | grep '"name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+    TAGS_RESPONSE=$(curl -s --max-time 10 "https://api.github.com/repos/${REPO}/tags" 2>&1)
+    TAGS_EXIT_CODE=$?
+    
+    if [ $TAGS_EXIT_CODE -ne 0 ]; then
+        echo -e "${YELLOW}Warning: tags API curl failed with exit code ${TAGS_EXIT_CODE}${NC}"
+        if [ -n "$TAGS_RESPONSE" ]; then
+            echo -e "${YELLOW}Response: ${TAGS_RESPONSE}${NC}"
+        fi
+    fi
+    
+    LATEST_VERSION=$(echo "$TAGS_RESPONSE" | grep '"name":' | head -1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
 fi
 
 # Fail if version detection failed
 if [ -z "$LATEST_VERSION" ]; then
     echo -e "${RED}Error: Failed to fetch latest version from GitHub API.${NC}"
-    echo -e "${YELLOW}Please check your network connection and try again.${NC}"
-    echo -e "${YELLOW}You can also manually download from: https://github.com/${REPO}/releases${NC}"
+    echo -e "${YELLOW}Diagnostic info:${NC}"
+    echo -e "  - Releases API URL: ${GITHUB_API}"
+    echo -e "  - Releases API curl exit code: ${CURL_EXIT_CODE}"
+    echo -e "  - Tags API curl exit code: ${TAGS_EXIT_CODE}"
+    echo -e "${YELLOW}Possible causes:${NC}"
+    echo -e "  - Network connectivity issues"
+    echo -e "  - GitHub API rate limiting"
+    echo -e "  - Firewall or proxy blocking GitHub API"
+    echo -e "${YELLOW}You can manually download from: https://github.com/${REPO}/releases${NC}"
     exit 1
 fi
 echo -e "${GREEN}Latest version: ${LATEST_VERSION}${NC}"
