@@ -35,6 +35,13 @@ fi
 
 LATEST_VERSION=$(echo "$API_RESPONSE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
 
+# Debug: Show what we got if extraction failed
+if [ -z "$LATEST_VERSION" ] && [ -n "$API_RESPONSE" ]; then
+    echo -e "${YELLOW}Debug: API response received but version extraction failed${NC}"
+    echo -e "${YELLOW}Response preview (first 500 chars): ${API_RESPONSE:0:500}${NC}"
+    echo -e "${YELLOW}grep result: $(echo "$API_RESPONSE" | grep '"tag_name":' || echo "NOT FOUND")${NC}"
+fi
+
 # Fallback to tags API if releases API fails
 if [ -z "$LATEST_VERSION" ]; then
     echo -e "${YELLOW}Releases API failed, trying tags API...${NC}"
