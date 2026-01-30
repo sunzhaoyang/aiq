@@ -33,20 +33,32 @@ if [ $CURL_EXIT_CODE -ne 0 ]; then
     fi
 fi
 
-LATEST_VERSION=$(echo "$API_RESPONSE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
-
-# Debug: Show what we got if extraction failed
-if [ -z "$LATEST_VERSION" ] && [ -n "$API_RESPONSE" ]; then
-    echo -e "${YELLOW}Debug: API response received but version extraction failed${NC}"
-    echo -e "${YELLOW}Response preview (first 500 chars): ${API_RESPONSE:0:500}${NC}"
-    echo -e "${YELLOW}grep result: $(echo "$API_RESPONSE" | grep '"tag_name":' || echo "NOT FOUND")${NC}"
+# Check for API rate limiting
+if echo "$API_RESPONSE" | grep -q "rate limit exceeded"; then
+    echo -e "${YELLOW}Warning: GitHub API rate limit exceeded. Trying tags API...${NC}"
+    API_RESPONSE=""  # Clear response to trigger fallback
 fi
+
+LATEST_VERSION=$(echo "$API_RESPONSE" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
 
 # Fallback to tags API if releases API fails
 if [ -z "$LATEST_VERSION" ]; then
-    echo -e "${YELLOW}Releases API failed, trying tags API...${NC}"
+    if [ -z "$API_RESPONSE" ] || ! echo "$API_RESPONSE" | grep -q "rate limit exceeded"; then
+        echo -e "${YELLOW}Releases API failed, trying tags API...${NC}"
+    fi
     TAGS_RESPONSE=$(curl -s --max-time 10 "https://api.github.com/repos/${REPO}/tags" 2>&1)
     TAGS_EXIT_CODE=$?
+    
+    # Check for API rate limiting in tags API too
+    if echo "$TAGS_RESPONSE" | grep -q "rate limit exceeded"; then
+        echo -e "${RED}Error: GitHub API rate limit exceeded for both releases and tags APIs.${NC}"
+        echo -e "${YELLOW}This usually happens when making too many requests from the same IP address.${NC}"
+        echo -e "${YELLOW}Solutions:${NC}"
+        echo -e "  1. Wait a few minutes and try again"
+        echo -e "  2. Use a GitHub token for higher rate limits (set GITHUB_TOKEN env var)"
+        echo -e "  3. Manually download from: https://github.com/${REPO}/releases"
+        exit 1
+    fi
     
     if [ $TAGS_EXIT_CODE -ne 0 ]; then
         echo -e "${YELLOW}Warning: tags API curl failed with exit code ${TAGS_EXIT_CODE}${NC}"
