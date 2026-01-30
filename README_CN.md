@@ -35,7 +35,7 @@ AIQ (AI Query) 是一个智能 SQL 客户端，通过自然语言与数据库交
 
 ```bash
 # 克隆并构建
-git clone https://github.com/aiq/aiq.git
+git clone https://github.com/sunetic/aiq.git
 cd aiq
 go build -o aiq cmd/aiq/main.go
 
@@ -139,6 +139,6 @@ Skills 指导 AI 使用: `execute_sql`、`http_request`、`execute_command`、`f
 
 **Made with ❤️ using Go**
 
-[报告问题](https://github.com/aiq/aiq/issues) · [提交功能请求](https://github.com/aiq/aiq/issues) · [查看文档](https://github.com/aiq/aiq)
+[报告问题](https://github.com/sunetic/aiq/issues) · [提交功能请求](https://github.com/sunetic/aiq/issues) · [查看文档](https://github.com/sunetic/aiq)
 
 </div>

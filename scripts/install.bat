@@ -4,7 +4,7 @@ setlocal enabledelayedexpansion
 REM AIQ Installation Script for Windows
 REM Automatically detects latest version and installs aiq.exe binary
 
-set "REPO=sunzhaoyang/aiq"
+set "REPO=sunetic/aiq"
 set "GITHUB_API=https://api.github.com/repos/%REPO%/releases/latest"
 set "GITHUB_RELEASES=https://github.com/%REPO%/releases/download"
 

@@ -1,4 +1,4 @@
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Unix/Linux/macOS installation script
 The system SHALL provide a shell script (`scripts/install.sh`) that automatically installs the latest version of `aiq` binary for Unix/Linux/macOS systems.

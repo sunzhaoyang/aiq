@@ -37,14 +37,14 @@ AIQ (AI Query) is an intelligent SQL client that enables you to interact with da
 
 **Unix/Linux/macOS:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sunzhaoyang/aiq/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sunetic/aiq/main/scripts/install.sh | bash
 ```
 
 **Windows:**
 ```powershell
 # Download and run install.bat
 # Or run in PowerShell:
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/sunzhaoyang/aiq/main/scripts/install.bat" -OutFile "install.bat"
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/sunetic/aiq/main/scripts/install.bat" -OutFile "install.bat"
 .\install.bat
 ```
 
@@ -79,7 +79,7 @@ setx PATH "%PATH%;%USERPROFILE%\.aiq\bin"
 
 ```bash
 # Clone and build
-git clone https://github.com/sunzhaoyang/aiq.git
+git clone https://github.com/sunetic/aiq.git
 cd aiq
 go build -o aiq cmd/aiq/main.go
 
@@ -183,6 +183,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 **Made with ❤️ using Go**
 
-[Report Bug](https://github.com/aiq/aiq/issues) · [Request Feature](https://github.com/aiq/aiq/issues) · [View Documentation](https://github.com/aiq/aiq)
+[Report Bug](https://github.com/sunetic/aiq/issues) · [Request Feature](https://github.com/sunetic/aiq/issues) · [View Documentation](https://github.com/sunetic/aiq)
 
 </div>
