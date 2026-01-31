@@ -37,7 +37,7 @@ func TestCommandTool_ExecuteSimpleCommand(t *testing.T) {
 }
 
 func TestCommandTool_TimeoutParameter(t *testing.T) {
-	// Task 5.4: 验证用户可以通过 timeout 参数自定义超时时间
+	// Task 5.4: Verify that users can customize timeout via timeout parameter
 	tool := NewCommandTool()
 
 	// Test with timeout parameter

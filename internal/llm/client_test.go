@@ -6,7 +6,7 @@ import (
 )
 
 func TestParseArguments_StandardJSON(t *testing.T) {
-	// Task 3.1: 标准 JSON 对象参数解析
+	// Task 3.1: Standard JSON object argument parsing
 	tc := &ToolCall{
 		Function: struct {
 			Name      string `json:"name"`
@@ -28,7 +28,7 @@ func TestParseArguments_StandardJSON(t *testing.T) {
 }
 
 func TestParseArguments_DoubleEncodedJSON(t *testing.T) {
-	// Task 3.2: 双重编码 JSON 字符串解析
+	// Task 3.2: Double-encoded JSON string parsing
 	tc := &ToolCall{
 		Function: struct {
 			Name      string `json:"name"`
@@ -50,7 +50,7 @@ func TestParseArguments_DoubleEncodedJSON(t *testing.T) {
 }
 
 func TestParseArguments_MultipleLayers(t *testing.T) {
-	// Task 3.3: 多重编码 JSON 字符串解析（3+ 层）
+	// Task 3.3: Multi-layer encoded JSON string parsing (3+ layers)
 	// Triple-encoded: "\"{\\\"command\\\":\\\"brew list mysql\\\"}\""
 	tripleEncoded := `"\"{\\\"command\\\":\\\"brew list mysql\\\"}\""`
 	tc := &ToolCall{
@@ -74,7 +74,7 @@ func TestParseArguments_MultipleLayers(t *testing.T) {
 }
 
 func TestParseArguments_EscapeSequences(t *testing.T) {
-	// Task 3.4: 包含转义字符的 JSON 字符串解析
+	// Task 3.4: JSON string parsing with escape sequences
 	tc := &ToolCall{
 		Function: struct {
 			Name      string `json:"name"`
@@ -96,7 +96,7 @@ func TestParseArguments_EscapeSequences(t *testing.T) {
 }
 
 func TestParseArguments_EmptyString(t *testing.T) {
-	// Task 3.5: 空字符串和空白字符处理
+	// Task 3.5: Empty string and whitespace handling
 	tc := &ToolCall{
 		Function: struct {
 			Name      string `json:"name"`
@@ -114,7 +114,7 @@ func TestParseArguments_EmptyString(t *testing.T) {
 }
 
 func TestParseArguments_WhitespaceOnly(t *testing.T) {
-	// Task 3.5: 空字符串和空白字符处理
+	// Task 3.5: Empty string and whitespace handling
 	tc := &ToolCall{
 		Function: struct {
 			Name      string `json:"name"`
@@ -132,7 +132,7 @@ func TestParseArguments_WhitespaceOnly(t *testing.T) {
 }
 
 func TestParseArguments_InvalidJSON(t *testing.T) {
-	// Task 3.6: 无效 JSON 格式处理
+	// Task 3.6: Invalid JSON format handling
 	tc := &ToolCall{
 		Function: struct {
 			Name      string `json:"name"`
@@ -150,7 +150,7 @@ func TestParseArguments_InvalidJSON(t *testing.T) {
 }
 
 func TestParseArguments_MaxDepth(t *testing.T) {
-	// Task 3.7: 达到最大递归深度时的处理
+	// Task 3.7: Handling when maximum recursion depth is reached
 	// Create a deeply nested JSON string (more than 10 layers)
 	deeplyNested := `"\"\"\"\"\"\"\"\"\"\"{\\\"command\\\":\\\"test\\\"}\"\"\"\"\"\"\"\"\"\""`
 	tc := &ToolCall{
@@ -174,7 +174,7 @@ func TestParseArguments_MaxDepth(t *testing.T) {
 }
 
 func TestParseArguments_ErrorIncludesOriginal(t *testing.T) {
-	// Task 3.8: 错误信息包含原始参数
+	// Task 3.8: Error message includes original arguments
 	tc := &ToolCall{
 		Function: struct {
 			Name      string `json:"name"`
