@@ -1,119 +1,119 @@
 ## Context
 
-仓库已从 `sunzhaoyang/aiq` 迁移到 `sunetic/aiq`。当前代码库中存在多处对旧仓库路径的引用，包括：
-- 安装脚本中的仓库变量（`scripts/install.sh` 和 `scripts/install.bat`）
-- README 文档中的安装命令和克隆命令
-- 可能存在的其他文档引用
+Repository has migrated from `sunzhaoyang/aiq` to `sunetic/aiq`. Current codebase contains multiple references to old repository path, including:
+- Repository variables in installation scripts (`scripts/install.sh` and `scripts/install.bat`)
+- Installation commands and clone commands in README documentation
+- Other documentation references that may exist
 
-**当前状态**:
+**Current State**:
 - `scripts/install.sh`: `REPO="sunzhaoyang/aiq"`
 - `scripts/install.bat`: `set "REPO=sunzhaoyang/aiq"`
-- `README.md`: 3处 `sunzhaoyang/aiq` URL
-- `go.mod`: `module github.com/aiq/aiq`（模块路径，需要评估）
+- `README.md`: 3 `sunzhaoyang/aiq` URLs
+- `go.mod`: `module github.com/aiq/aiq` (module path, needs evaluation)
 
-**约束**:
-- 必须保持向后兼容性（如果用户已安装，不应影响现有安装）
-- 归档的历史文档（`openspec/changes/archive/`）不需要更新，保持历史记录完整性
+**Constraints**:
+- Must maintain backward compatibility (if users already installed, should not affect existing installations)
+- Archived historical documents (`openspec/changes/archive/`) don't need updating, maintain historical record integrity
 
 ## Goals / Non-Goals
 
 **Goals:**
-- 更新所有活跃文件中的仓库路径引用，从 `sunzhaoyang/aiq` 改为 `sunetic/aiq`
-- 确保安装脚本能从新仓库正确下载二进制文件
-- 确保文档中的链接指向新仓库
-- 保持代码库的一致性和准确性
+- Update repository path references in all active files from `sunzhaoyang/aiq` to `sunetic/aiq`
+- Ensure installation scripts can correctly download binaries from new repository
+- Ensure links in documentation point to new repository
+- Maintain codebase consistency and accuracy
 
 **Non-Goals:**
-- 不更新归档的历史文档（保持历史记录）
-- 不修改 Go 代码中的 import 路径（`github.com/aiq/aiq` 是模块路径，与仓库路径可以不同）
-- 不进行功能性的改动，仅更新路径引用
+- Do not update archived historical documents (maintain historical records)
+- Do not modify import paths in Go code (`github.com/aiq/aiq` is module path, can differ from repository path)
+- Do not make functional changes, only update path references
 
 ## Decisions
 
-### 决策 1: 更新安装脚本中的仓库变量
-**选择**: 直接更新 `REPO` 变量从 `sunzhaoyang/aiq` 改为 `sunetic/aiq`
+### Decision 1: Update Repository Variables in Installation Scripts
+**Choice**: Directly update `REPO` variable from `sunzhaoyang/aiq` to `sunetic/aiq`
 
-**理由**: 
-- 安装脚本依赖 GitHub API 和 Releases 下载，必须指向正确的仓库
-- 这是用户安装的关键路径，必须准确
+**Rationale**: 
+- Installation scripts depend on GitHub API and Releases downloads, must point to correct repository
+- This is critical path for user installation, must be accurate
 
-**替代方案考虑**:
-- 使用环境变量：增加了复杂性，用户需要额外配置
-- 自动检测：不可靠，可能检测错误
+**Alternatives Considered**:
+- Use environment variables: Increases complexity, users need additional configuration
+- Auto-detection: Unreliable, may detect incorrectly
 
-### 决策 2: 更新 README 文档中的 URL
-**选择**: 更新所有 `sunzhaoyang/aiq` 的 URL 引用为 `sunetic/aiq`
+### Decision 2: Update URLs in README Documentation
+**Choice**: Update all `sunzhaoyang/aiq` URL references to `sunetic/aiq`
 
-**理由**:
-- 文档是用户的第一接触点，必须准确
-- 包括安装命令、克隆命令和 issue 链接
+**Rationale**:
+- Documentation is user's first point of contact, must be accurate
+- Includes installation commands, clone commands, and issue links
 
-**替代方案考虑**:
-- 使用重定向：GitHub 可能不支持跨用户重定向
-- 保留旧链接：会造成用户困惑
+**Alternatives Considered**:
+- Use redirects: GitHub may not support cross-user redirects
+- Keep old links: Would cause user confusion
 
-### 决策 3: Go 模块路径保持不变
-**选择**: `go.mod` 中的 `module github.com/aiq/aiq` 保持不变
+### Decision 3: Keep Go Module Path Unchanged
+**Choice**: `module github.com/aiq/aiq` in `go.mod` remains unchanged
 
-**理由**:
-- Go 模块路径是代码内部的标识符，与实际的 GitHub 仓库路径可以不同
-- 更改模块路径会导致所有 import 语句需要更新，影响范围大
-- 如果未来需要统一，可以作为独立的迁移任务处理
+**Rationale**:
+- Go module path is internal code identifier, can differ from actual GitHub repository path
+- Changing module path would require updating all import statements, large impact scope
+- If unification needed in future, can be handled as independent migration task
 
-**替代方案考虑**:
-- 更新为 `github.com/sunetic/aiq`：需要更新所有 import 路径，风险高，收益低
+**Alternatives Considered**:
+- Update to `github.com/sunetic/aiq`: Would require updating all import paths, high risk, low benefit
 
-### 决策 4: 不更新归档文档
-**选择**: `openspec/changes/archive/` 目录下的历史文档保持不变
+### Decision 4: Do Not Update Archived Documents
+**Choice**: Historical documents under `openspec/changes/archive/` directory remain unchanged
 
-**理由**:
-- 归档文档是历史记录，应该保持原样以反映当时的状态
-- 更新历史文档会破坏历史准确性
+**Rationale**:
+- Archived documents are historical records, should remain as-is to reflect state at that time
+- Updating historical documents would destroy historical accuracy
 
 ## Risks / Trade-offs
 
-**风险 1: 用户使用旧安装命令**
-- **风险**: 用户可能从旧文档或缓存中复制了旧的安装命令
-- **缓解**: README 已更新，搜索引擎会逐渐索引新内容；GitHub 可能提供重定向（如果配置了）
+**Risk 1: Users Using Old Installation Commands**
+- **Risk**: Users may copy old installation commands from old documentation or cache
+- **Mitigation**: README already updated, search engines will gradually index new content; GitHub may provide redirects (if configured)
 
-**风险 2: Go 模块路径与仓库路径不一致**
-- **风险**: 开发者可能困惑为什么模块路径和仓库路径不同
-- **缓解**: 在 README 中说明这是正常的，Go 模块路径可以独立于仓库路径；未来如果需要可以单独迁移
+**Risk 2: Go Module Path Inconsistency with Repository Path**
+- **Risk**: Developers may be confused why module path and repository path differ
+- **Mitigation**: Explain in README that this is normal, Go module paths can be independent of repository paths; can migrate separately in future if needed
 
-**风险 3: 遗漏某些引用**
-- **风险**: 可能有隐藏的配置文件或注释中的引用未被发现
-- **缓解**: 使用 grep 全面搜索，检查所有可能的位置；代码审查时再次确认
+**Risk 3: Missing Some References**
+- **Risk**: May have hidden configuration files or references in comments not discovered
+- **Mitigation**: Use grep for comprehensive search, check all possible locations; confirm again during code review
 
-**权衡**:
-- **简单性 vs 一致性**: 选择保持 Go 模块路径不变，牺牲了一致性但避免了大规模重构的风险
+**Trade-offs**:
+- **Simplicity vs Consistency**: Choose to keep Go module path unchanged, sacrifice consistency but avoid large-scale refactoring risk
 
 ## Migration Plan
 
-### 步骤 1: 更新安装脚本
-1. 更新 `scripts/install.sh` 中的 `REPO` 变量
-2. 更新 `scripts/install.bat` 中的 `REPO` 变量
-3. 验证脚本语法正确性
+### Step 1: Update Installation Scripts
+1. Update `REPO` variable in `scripts/install.sh`
+2. Update `REPO` variable in `scripts/install.bat`
+3. Verify script syntax correctness
 
-### 步骤 2: 更新文档
-1. 更新 `README.md` 中的所有 `sunzhaoyang/aiq` URL
-2. 检查并更新 `README_CN.md` 中的相关 URL（如果存在）
-3. 验证所有链接格式正确
+### Step 2: Update Documentation
+1. Update all `sunzhaoyang/aiq` URLs in `README.md`
+2. Check and update relevant URLs in `README_CN.md` (if exist)
+3. Verify all link formats are correct
 
-### 步骤 3: 全面检查
-1. 使用 grep 搜索所有可能的仓库路径引用
-2. 确认没有遗漏的文件
-3. 验证不更新归档文档的决定
+### Step 3: Comprehensive Check
+1. Use grep to search all possible repository path references
+2. Confirm no files missed
+3. Verify decision not to update archived documents
 
-### 步骤 4: 测试验证
-1. 验证安装脚本能从新仓库下载（如果新仓库已有 releases）
-2. 验证文档中的链接可访问
-3. 确认代码构建正常（模块路径未改变）
+### Step 4: Testing and Verification
+1. Verify installation scripts can download from new repository (if new repository already has releases)
+2. Verify links in documentation are accessible
+3. Confirm code builds normally (module path unchanged)
 
-### 回滚策略
-- 如果发现问题，可以快速回滚文件更改
-- 由于只是路径更新，不涉及功能变更，回滚风险低
+### Rollback Strategy
+- If issues found, can quickly rollback file changes
+- Since only path updates, no functional changes involved, low rollback risk
 
 ## Open Questions
 
-1. **GitHub 重定向**: 旧仓库 `sunzhaoyang/aiq` 是否配置了重定向到新仓库？这会影响用户使用旧链接的情况。
-2. **Go 模块路径**: 未来是否需要统一模块路径和仓库路径？如果需要，应该作为独立任务处理。
+1. **GitHub Redirect**: Has old repository `sunzhaoyang/aiq` configured redirect to new repository? This affects users using old links.
+2. **Go Module Path**: Will we need to unify module path and repository path in future? If needed, should be handled as independent task.

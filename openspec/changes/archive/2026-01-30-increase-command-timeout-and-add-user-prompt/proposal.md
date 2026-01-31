@@ -1,33 +1,33 @@
 ## Why
 
-当前命令执行的默认超时时间为 30 秒，对于某些需要较长时间执行的命令（如编译、下载、数据库操作等）来说太短。当命令超时时，系统直接返回错误，用户无法选择继续等待，导致需要重新执行命令，影响用户体验。增加默认超时时间到 60 秒，并在超时后询问用户是否继续等待，可以显著改善长时间运行命令的用户体验。
+The current default timeout for command execution is 30 seconds, which is too short for some commands that require longer execution time (like compilation, downloads, database operations, etc.). When commands timeout, the system directly returns an error, and users cannot choose to continue waiting, causing need to re-execute commands and affecting user experience. Increasing default timeout to 60 seconds and asking users whether to continue waiting after timeout can significantly improve user experience for long-running commands.
 
 ## What Changes
 
-- **增加默认超时时间**：将 `execute_command` 工具的默认超时时间从 30 秒增加到 60 秒
-- **超时后用户提示**：当命令执行超时时，不再直接返回错误，而是询问用户是否继续等待
-- **用户选择处理**：如果用户选择继续等待，重置超时计时器并继续执行；如果选择取消，返回超时错误
+- **Increase Default Timeout**: Increase default timeout of `execute_command` tool from 30 seconds to 60 seconds
+- **User Prompt After Timeout**: When command execution times out, no longer directly return error, but ask user whether to continue waiting
+- **User Choice Handling**: If user chooses to continue waiting, reset timeout timer and continue execution; if chooses to cancel, return timeout error
 
 ## Capabilities
 
 ### New Capabilities
-- `command-timeout-user-prompt`: 命令执行超时后询问用户是否继续等待的能力
+- `command-timeout-user-prompt`: Ability to ask user whether to continue waiting after command execution timeout
 
 ### Modified Capabilities
-- `command-execution-display`: 修改默认超时时间从 30 秒到 60 秒，并添加超时后用户提示的场景
+- `command-execution-display`: Modify default timeout from 30 seconds to 60 seconds, and add user prompt scenario after timeout
 
 ## Impact
 
-**受影响的代码：**
-- `internal/tool/builtin/command_tool.go`: 修改默认超时时间，添加超时后用户交互逻辑
-- `internal/sql/tool_handler.go`: 可能需要处理超时提示的用户交互
-- `internal/ui/`: 可能需要添加用户确认提示的 UI 函数
+**Affected Code:**
+- `internal/tool/builtin/command_tool.go`: Modify default timeout, add user interaction logic after timeout
+- `internal/sql/tool_handler.go`: May need to handle user interaction for timeout prompts
+- `internal/ui/`: May need to add UI function for user confirmation prompts
 
-**用户体验：**
-- 减少因超时导致的命令执行失败
-- 提供更好的长时间运行命令支持
-- 用户可以选择是否继续等待，而不是被迫重新执行
+**User Experience:**
+- Reduce command execution failures due to timeout
+- Provide better support for long-running commands
+- Users can choose whether to continue waiting instead of being forced to re-execute
 
-**向后兼容性：**
-- 默认超时时间的改变不会影响现有代码，只是默认值变化
-- 用户仍然可以通过 `timeout` 参数自定义超时时间
+**Backward Compatibility:**
+- Change in default timeout won't affect existing code, only default value changes
+- Users can still customize timeout via `timeout` parameter

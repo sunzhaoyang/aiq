@@ -1,172 +1,172 @@
 ## Context
 
-当前 `execute_command` 工具使用 idle timeout 机制：当命令在 30 秒内没有输出时，会超时并直接终止命令。这个机制对于长时间运行但偶尔有输出的命令（如编译、下载等）来说太严格，导致命令被过早终止。
+The current `execute_command` tool uses idle timeout mechanism: when command has no output within 30 seconds, it times out and directly terminates the command. This mechanism is too strict for commands that run for a long time but occasionally have output (like compilation, downloads, etc.), causing commands to be prematurely terminated.
 
-**当前实现：**
-- 默认 idle timeout: 30 秒
-- 超时处理：直接 kill 进程并返回错误
-- 用户无法干预超时决策
+**Current Implementation:**
+- Default idle timeout: 30 seconds
+- Timeout handling: Directly kill process and return error
+- Users cannot intervene in timeout decisions
 
-**约束：**
-- 命令执行是异步的，需要处理并发场景
-- UI 交互需要在命令执行过程中进行，不能阻塞输出流
-- 需要保持向后兼容性
+**Constraints:**
+- Command execution is asynchronous, needs to handle concurrent scenarios
+- UI interaction needs to occur during command execution, cannot block output stream
+- Need to maintain backward compatibility
 
 ## Goals / Non-Goals
 
 **Goals:**
-- 将默认 idle timeout 从 30 秒增加到 60 秒
-- 超时后询问用户是否继续等待
-- 支持用户多次延长超时（每次延长重置计时器）
-- 保持现有的 idle timeout 机制（有输出时重置计时器）
+- Increase default idle timeout from 30 seconds to 60 seconds
+- Ask user whether to continue waiting after timeout
+- Support users extending timeout multiple times (each extension resets timer)
+- Maintain existing idle timeout mechanism (reset timer when there's output)
 
 **Non-Goals:**
-- 不改变 idle timeout 的基本机制（仍然在有输出时重置）
-- 不添加配置选项来禁用超时提示（保持简单）
-- 不改变其他工具（如 http_request）的超时机制
+- Do not change basic idle timeout mechanism (still resets when there's output)
+- Do not add configuration options to disable timeout prompts (keep it simple)
+- Do not change timeout mechanisms of other tools (like http_request)
 
 ## Decisions
 
-### 1. 超时提示的交互方式
+### 1. Timeout Prompt Interaction Method
 
-**决策：** 使用现有的 `ui.ShowConfirm()` 函数进行用户确认，提示信息清晰说明当前情况。
+**Decision**: Use existing `ui.ShowConfirm()` function for user confirmation, prompt message clearly explains current situation.
 
-**理由：**
-- `ui.ShowConfirm()` 已经存在且经过验证
-- 简单的 yes/no 选择足够满足需求
-- 不需要额外的 UI 组件
+**Rationale**:
+- `ui.ShowConfirm()` already exists and is proven
+- Simple yes/no choice is sufficient for needs
+- No additional UI components needed
 
-**实现方式：**
+**Implementation**:
 ```go
-// 当超时发生时
+// When timeout occurs
 continueWaiting, err := ui.ShowConfirm(
     fmt.Sprintf("Command has been idle for %v. Continue waiting?", idleTimeout))
 if err != nil {
-    // 用户中断（Ctrl+C），视为取消
+    // User interruption (Ctrl+C), treat as cancel
     cmd.Process.Kill()
     return nil, fmt.Errorf("command execution cancelled by user")
 }
 if !continueWaiting {
-    // 用户选择不继续
+    // User chooses not to continue
     cmd.Process.Kill()
     return nil, fmt.Errorf("command execution timeout: no output for %v", idleTimeout)
 }
-// 用户选择继续，重置计时器
+// User chooses to continue, reset timer
 idleTimer.Reset(idleTimeout)
 ```
 
-**替代方案考虑：**
-- **方案 A：** 自动延长固定时间（如再等 30 秒）- 不够灵活，用户无法控制
-- **方案 B：** 询问用户并允许输入新的超时时间 - 过于复杂，增加用户负担
-- **方案 C：** 询问用户是否继续（选择）- 简单直接，满足需求
+**Alternatives Considered**:
+- **Option A**: Automatically extend fixed time (e.g., wait another 30 seconds) - Not flexible enough, user cannot control
+- **Option B**: Ask user and allow inputting new timeout time - Too complex, increases user burden
+- **Option C**: Ask user whether to continue (chosen) - Simple and direct, meets needs
 
-### 2. 超时提示的显示时机
+### 2. Timeout Prompt Display Timing
 
-**决策：** 在检测到 idle timeout 时立即显示提示，暂停等待用户响应。
+**Decision**: Immediately display prompt when idle timeout is detected, pause and wait for user response.
 
-**理由：**
-- 超时意味着命令可能卡住，及时询问用户可以避免不必要的等待
-- 暂停等待不会影响命令的正常执行（命令仍在后台运行）
+**Rationale**:
+- Timeout means command may be stuck, timely asking user can avoid unnecessary waiting
+- Pausing wait doesn't affect normal command execution (command still runs in background)
 
-**实现方式：**
-- 在 `case <-idleTimer.C:` 分支中，先停止计时器，然后显示确认提示
-- 等待用户响应期间，命令继续在后台运行
-- 如果用户选择继续，重置计时器；如果选择取消，终止命令
+**Implementation**:
+- In `case <-idleTimer.C:` branch, first stop timer, then display confirmation prompt
+- Command continues running in background while waiting for user response
+- If user chooses to continue, reset timer; if chooses to cancel, terminate command
 
-**替代方案考虑：**
-- **方案 A：** 提前几秒警告 - 增加复杂度，可能误报
-- **方案 B：** 超时后立即提示（选择）- 简单直接
+**Alternatives Considered**:
+- **Option A**: Warn a few seconds in advance - Increases complexity, may false alarm
+- **Option B**: Immediately prompt after timeout (chosen) - Simple and direct
 
-### 3. 多次延长超时的处理
+### 3. Handling Multiple Timeout Extensions
 
-**决策：** 允许用户多次延长超时，每次延长都重置计时器。
+**Decision**: Allow users to extend timeout multiple times, each extension resets timer.
 
-**理由：**
-- 某些命令可能需要很长时间，允许多次延长提供更好的灵活性
-- 实现简单，只需要在用户选择继续时重置计时器
+**Rationale**:
+- Some commands may need very long time, allowing multiple extensions provides better flexibility
+- Simple implementation, only need to reset timer when user chooses to continue
 
-**实现方式：**
-- 每次超时都询问用户
-- 用户选择继续后，重置计时器并继续等待
-- 没有最大延长次数限制（用户可以通过选择"否"来终止）
+**Implementation**:
+- Ask user every time timeout occurs
+- After user chooses to continue, reset timer and continue waiting
+- No maximum extension count limit (user can terminate by choosing "no")
 
-**替代方案考虑：**
-- **方案 A：** 限制最大延长次数 - 可能不够灵活
-- **方案 B：** 允许无限延长（选择）- 更灵活，用户可控
+**Alternatives Considered**:
+- **Option A**: Limit maximum extension count - May not be flexible enough
+- **Option B**: Allow unlimited extensions (chosen) - More flexible, user controllable
 
-### 4. 并发安全处理
+### 4. Concurrency Safety Handling
 
-**决策：** 在显示确认提示时，需要确保命令输出不会干扰提示显示。
+**Decision**: When displaying confirmation prompt, need to ensure command output doesn't interfere with prompt display.
 
-**理由：**
-- 命令可能在用户响应期间产生输出
-- 需要避免输出和提示混在一起
+**Rationale**:
+- Command may produce output during user response
+- Need to avoid output and prompt mixing together
 
-**实现方式：**
-- 在显示提示前，暂停输出回调（如果有）
-- 或者使用独立的输出通道，确保提示显示在单独的行
-- 使用 `ui.ShowConfirm()` 已经处理了输入输出的隔离
+**Implementation**:
+- Before displaying prompt, pause output callback (if any)
+- Or use independent output channel to ensure prompt displays on separate line
+- Using `ui.ShowConfirm()` already handles input/output isolation
 
-**替代方案考虑：**
-- **方案 A：** 暂停输出流 - 可能丢失输出
-- **方案 B：** 使用独立行显示提示（选择）- 不干扰输出，更清晰
+**Alternatives Considered**:
+- **Option A**: Pause output stream - May lose output
+- **Option B**: Use independent line to display prompt (chosen) - Doesn't interfere with output, clearer
 
-### 5. 默认超时时间的修改
+### 5. Default Timeout Time Modification
 
-**决策：** 将默认 idle timeout 从 30 秒改为 60 秒。
+**Decision**: Change default idle timeout from 30 seconds to 60 seconds.
 
-**理由：**
-- 60 秒对于大多数命令来说更合理
-- 用户仍然可以通过 `timeout` 参数自定义
+**Rationale**:
+- 60 seconds is more reasonable for most commands
+- Users can still customize via `timeout` parameter
 
-**实现方式：**
-- 修改 `command_tool.go` 中的默认值：`idleTimeout := 60 * time.Second`
-- 更新工具定义中的默认值描述
-- 更新相关文档
+**Implementation**:
+- Modify default value in `command_tool.go`: `idleTimeout := 60 * time.Second`
+- Update default value description in tool definition
+- Update related documentation
 
 ## Risks / Trade-offs
 
-**风险 1：** 用户交互可能阻塞命令执行
-- **缓解措施：** 使用异步 UI 交互，命令在后台继续运行
+**Risk 1**: User interaction may block command execution
+- **Mitigation**: Use asynchronous UI interaction, command continues running in background
 
-**风险 2：** 用户可能无限延长超时，导致命令永远不结束
-- **缓解措施：** 这是用户的选择，如果命令真的卡住，用户可以选择取消
+**Risk 2**: Users may extend timeout indefinitely, causing command to never end
+- **Mitigation**: This is user's choice, if command is really stuck, user can choose to cancel
 
-**风险 3：** 超时提示可能与命令输出混在一起
-- **缓解措施：** 使用 `ui.ShowConfirm()` 确保提示显示在独立行
+**Risk 3**: Timeout prompt may mix with command output
+- **Mitigation**: Use `ui.ShowConfirm()` to ensure prompt displays on independent line
 
-**风险 4：** 默认超时时间增加可能导致某些场景下等待时间过长
-- **缓解措施：** 用户可以通过 `timeout` 参数自定义，或者选择取消
+**Risk 4**: Default timeout increase may cause excessive waiting time in some scenarios
+- **Mitigation**: Users can customize via `timeout` parameter, or choose to cancel
 
-**权衡：**
-- **灵活性 vs 简单性：** 选择灵活性，允许用户控制超时
-- **自动化 vs 用户控制：** 选择用户控制，提供更好的体验
+**Trade-offs**:
+- **Flexibility vs Simplicity**: Choose flexibility, allow users to control timeout
+- **Automation vs User Control**: Choose user control, provide better experience
 
 ## Migration Plan
 
-**部署步骤：**
-1. 修改 `command_tool.go` 中的默认超时时间
-2. 添加超时后用户提示逻辑
-3. 更新工具定义中的超时描述
-4. 添加测试用例
-5. 运行现有测试确保没有回归
+**Deployment Steps:**
+1. Modify default timeout time in `command_tool.go`
+2. Add user prompt logic after timeout
+3. Update timeout description in tool definition
+4. Add test cases
+5. Run existing tests to ensure no regression
 
-**回滚策略：**
-- 如果发现问题，可以快速回滚到之前的版本
-- 默认超时时间的改变是向后兼容的
+**Rollback Strategy:**
+- If issues found, can quickly rollback to previous version
+- Default timeout time change is backward compatible
 
-**测试策略：**
-- 单元测试：测试超时提示逻辑
-- 集成测试：测试实际的命令执行场景
-- 手动测试：测试用户交互流程
+**Testing Strategy:**
+- Unit tests: Test timeout prompt logic
+- Integration tests: Test actual command execution scenarios
+- Manual tests: Test user interaction flow
 
 ## Open Questions
 
-1. **是否需要在提示中显示命令信息？** 例如显示正在执行的命令名称
-   - **决定：** 暂时不需要，提示信息已经足够清晰
+1. **Should we display command information in prompt?** For example display command name being executed
+   - **Decision**: Not needed for now, prompt message is clear enough
 
-2. **是否需要在提示中显示已等待的时间？** 例如 "Command has been idle for 60s. Continue waiting?"
-   - **决定：** 可以添加，提供更多上下文信息
+2. **Should we display elapsed waiting time in prompt?** For example "Command has been idle for 60s. Continue waiting?"
+   - **Decision**: Can add, provides more context information
 
-3. **是否支持在非交互模式下自动延长？** 例如通过环境变量配置
-   - **决定：** 暂不支持，保持简单
+3. **Should we support automatic extension in non-interactive mode?** For example via environment variable configuration
+   - **Decision**: Not supported for now, keep it simple

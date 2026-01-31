@@ -1,35 +1,35 @@
-## 1. 修改默认超时时间
+## 1. Modify Default Timeout
 
-- [x] 1.1 将 `command_tool.go` 中的默认 idle timeout 从 30 秒改为 60 秒
-- [x] 1.2 更新 `CommandParams` 结构体注释中的默认超时时间描述
-- [x] 1.3 更新工具定义中的 timeout 参数描述（从 "default: 30" 改为 "default: 60"）
+- [x] 1.1 Change default idle timeout in `command_tool.go` from 30 seconds to 60 seconds
+- [x] 1.2 Update default timeout description in `CommandParams` struct comments
+- [x] 1.3 Update timeout parameter description in tool definition (from "default: 30" to "default: 60")
 
-## 2. 实现超时后用户提示功能
+## 2. Implement User Prompt After Timeout Functionality
 
-- [x] 2.1 在 `ExecuteWithCallback` 函数的 idle timeout case 中添加用户提示逻辑
-- [x] 2.2 使用 `ui.ShowConfirm()` 显示超时确认提示
-- [x] 2.3 处理用户选择"继续等待"的情况：重置 idle timer
-- [x] 2.4 处理用户选择"取消"的情况：终止命令并返回错误
-- [x] 2.5 处理用户中断（Ctrl+C）的情况：终止命令并返回错误
+- [x] 2.1 Add user prompt logic in idle timeout case of `ExecuteWithCallback` function
+- [x] 2.2 Use `ui.ShowConfirm()` to display timeout confirmation prompt
+- [x] 2.3 Handle user choosing "continue waiting": reset idle timer
+- [x] 2.4 Handle user choosing "cancel": terminate command and return error
+- [x] 2.5 Handle user interruption (Ctrl+C): terminate command and return error
 
-## 3. 确保提示不影响命令输出
+## 3. Ensure Prompt Doesn't Interfere with Command Output
 
-- [x] 3.1 验证提示显示在独立行，不与命令输出混在一起（通过 ui.ShowConfirm() 实现）
-- [x] 3.2 确保命令在等待用户响应期间继续在后台运行（命令在 goroutine 中运行，不受阻塞）
-- [x] 3.3 测试命令在用户响应期间产生输出的情况（设计已考虑，需要实际测试验证）
+- [x] 3.1 Verify prompt displays on independent line, not mixed with command output (implemented via ui.ShowConfirm())
+- [x] 3.2 Ensure command continues running in background while waiting for user response (command runs in goroutine, not blocked)
+- [x] 3.3 Test scenario where command produces output during user response (design already considered, needs actual testing verification)
 
-## 4. 添加测试用例
+## 4. Add Test Cases
 
-- [x] 4.1 添加测试用例：超时后显示用户提示（需要手动测试，已实现功能）
-- [x] 4.2 添加测试用例：用户选择继续等待，计时器重置（需要手动测试，已实现功能）
-- [x] 4.3 添加测试用例：用户选择取消，命令被终止（需要手动测试，已实现功能）
-- [x] 4.4 添加测试用例：多次超时提示的场景（需要手动测试，已实现功能）
-- [x] 4.5 添加测试用例：用户中断提示的场景（需要手动测试，已实现功能）
-- [x] 4.6 添加基础测试用例：验证命令执行和 timeout 参数解析
+- [x] 4.1 Add test case: Display user prompt after timeout (requires manual testing, functionality already implemented)
+- [x] 4.2 Add test case: User chooses to continue waiting, timer resets (requires manual testing, functionality already implemented)
+- [x] 4.3 Add test case: User chooses to cancel, command is terminated (requires manual testing, functionality already implemented)
+- [x] 4.4 Add test case: Multiple timeout prompt scenarios (requires manual testing, functionality already implemented)
+- [x] 4.5 Add test case: User interruption prompt scenario (requires manual testing, functionality already implemented)
+- [x] 4.6 Add basic test case: Verify command execution and timeout parameter parsing
 
-## 5. 验证和测试
+## 5. Verification and Testing
 
-- [x] 5.1 运行现有测试，确保没有回归
-- [ ] 5.2 手动测试：执行长时间命令，验证超时提示功能（需要实际运行应用）
-- [x] 5.3 验证默认超时时间已更新为 60 秒（代码已更新，默认值改为 60 秒）
-- [x] 5.4 验证用户可以通过 timeout 参数自定义超时时间（已添加测试用例验证）
+- [x] 5.1 Run existing tests to ensure no regression
+- [ ] 5.2 Manual testing: Execute long-running command, verify timeout prompt functionality (requires running application)
+- [x] 5.3 Verify default timeout has been updated to 60 seconds (code already updated, default value changed to 60 seconds)
+- [x] 5.4 Verify users can customize timeout via timeout parameter (test cases already added for verification)

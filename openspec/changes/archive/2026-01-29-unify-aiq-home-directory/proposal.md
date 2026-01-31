@@ -1,36 +1,36 @@
 ## Why
 
-当前配置目录 `~/.aiqconfig` 命名不够简洁，且安装脚本将二进制放在 `~/.local/bin`（非 macOS 标准路径）。参考 Rust (`~/.cargo`)、Go (`~/go`) 等工具的设计，统一使用 `~/.aiq` 作为 AIQ 的 home 目录，包含配置和二进制文件，更加简洁一致。
+The current configuration directory `~/.aiqconfig` naming is not concise enough, and the installation script places binaries in `~/.local/bin` (non-standard macOS path). Referencing designs from Rust (`~/.cargo`), Go (`~/go`) and other tools, unify to use `~/.aiq` as AIQ's home directory, containing configuration and binary files, more concise and consistent.
 
 ## What Changes
 
-- **目录重命名**：`~/.aiqconfig` → `~/.aiq`，子目录结构保持不变
-- **新增 bin 子目录**：`~/.aiq/bin` 用于存放 aiq 二进制文件
-- **安装脚本改进**：
-  - 安装位置从 `~/.local/bin` 改为 `~/.aiq/bin`
-  - 不再自动修改用户的 shell 配置文件
-  - 安装完成后打印 PATH 命令，让用户自行添加到 `.zshrc`/`.bashrc`
+- **Directory Rename**: `~/.aiqconfig` → `~/.aiq`, subdirectory structure remains unchanged
+- **New bin Subdirectory**: `~/.aiq/bin` for storing aiq binary files
+- **Installation Script Improvements**:
+  - Installation location changed from `~/.local/bin` to `~/.aiq/bin`
+  - No longer automatically modify user's shell configuration files
+  - After installation completes, print PATH command for user to add to `.zshrc`/`.bashrc` themselves
 
 ## Capabilities
 
 ### New Capabilities
 
-无
+None
 
 ### Modified Capabilities
 
-- `user-config-directory-organization`: 目录从 `~/.aiqconfig` 改为 `~/.aiq`，新增 `bin` 子目录
-- `installation-script`: 安装位置改为 `~/.aiq/bin`，不再自动修改 shell 配置，改为打印 PATH 命令
+- `user-config-directory-organization`: Directory changed from `~/.aiqconfig` to `~/.aiq`, added `bin` subdirectory
+- `installation-script`: Installation location changed to `~/.aiq/bin`, no longer automatically modify shell configuration, changed to print PATH command
 
 ## Impact
 
-**受影响的代码：**
+**Affected Code:**
 
-- `internal/config/directory.go`: 修改 `ConfigDir` 常量和相关路径
-- `scripts/install.sh`: 修改安装目录和 PATH 处理逻辑
-- `scripts/install.bat`: 修改 Windows 安装目录和 PATH 处理逻辑
-- `README.md`: 更新文档中的路径引用
+- `internal/config/directory.go`: Modify `ConfigDir` constant and related paths
+- `scripts/install.sh`: Modify installation directory and PATH handling logic
+- `scripts/install.bat`: Modify Windows installation directory and PATH handling logic
+- `README.md`: Update path references in documentation
 
-**用户影响：**
+**User Impact:**
 
-- 用户需要手动将 `~/.aiq/bin` 添加到 PATH
+- Users need to manually add `~/.aiq/bin` to PATH

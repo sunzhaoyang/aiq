@@ -1,112 +1,112 @@
 ## Context
 
-当前 CLI 存在以下用户体验问题：
-1. Chat 模式退出后无法返回主菜单，只能完全退出程序
-2. Source 管理缺少编辑功能，用户需要删除重建才能修改配置
-3. Chat 模式缺少明确的命令提示（如 `/help`）和 Tab 补全，用户不知道可用命令
-4. 命令行参数 `-D` 指定的 database 在第二次执行时被忽略，因为 source 的唯一性基于 host-port-username，不包含 database
+The current CLI has the following user experience issues:
+1. Chat mode cannot return to main menu after exit, can only fully exit program
+2. Source management lacks edit functionality, users need to delete and recreate to modify configuration
+3. Chat mode lacks clear command prompts (like `/help`) and Tab completion, users don't know available commands
+4. Database specified by command-line parameter `-D` is ignored on second execution because source uniqueness is based on host-port-username, does not include database
 
-现有代码结构：
-- `internal/cli/root.go`: 主菜单循环，调用各个子功能
-- `internal/cli/source.go`: Source 管理菜单（add, list, remove）
-- `internal/sql/mode.go`: Chat 模式实现，使用 readline 库
-- `internal/cli/dbconnect.go`: 命令行参数解析和连接验证
-- `internal/source/manager.go`: Source 的 CRUD 操作
+Existing code structure:
+- `internal/cli/root.go`: Main menu loop, calls various sub-functions
+- `internal/cli/source.go`: Source management menu (add, list, remove)
+- `internal/sql/mode.go`: Chat mode implementation, uses readline library
+- `internal/cli/dbconnect.go`: Command-line parameter parsing and connection verification
+- `internal/source/manager.go`: Source CRUD operations
 
 ## Goals / Non-Goals
 
 **Goals:**
-- 实现统一的导航机制，支持从 chat 模式返回到主菜单
-- 增加 source 编辑功能，支持修改所有字段
-- 增加 `/exit`、`/help` 命令和 Tab 补全支持
-- 优化 `-D` 参数处理，支持当次执行时使用命令行指定的 database
+- Implement unified navigation mechanism, support returning from chat mode to main menu
+- Add source edit functionality, support modifying all fields
+- Add `/exit`, `/help` commands and Tab completion support
+- Optimize `-D` parameter processing, support using command-line specified database during execution
 
 **Non-Goals:**
-- 不支持在 chat 模式中切换 source（需要退出重新选择）
-- 不支持复杂的命令历史搜索（readline 已有基础支持）
-- 不改变 source 的唯一性规则（仍基于 host-port-username）
+- Do not support switching source within chat mode (need to exit and reselect)
+- Do not support complex command history search (readline already has basic support)
+- Do not change source uniqueness rules (still based on host-port-username)
 
 ## Decisions
 
-### 1. Chat 模式返回主菜单
-**决策**: 修改 `RunSQLMode()` 返回值，在主菜单循环中检查返回值，如果返回特定错误（如 `ErrReturnToMenu`），则继续主菜单循环而不是退出程序。
+### 1. Chat Mode Return to Main Menu
+**Decision**: Modify `RunSQLMode()` return value, check return value in main menu loop, if returns specific error (like `ErrReturnToMenu`), continue main menu loop instead of exiting program.
 
-**替代方案考虑**:
-- 方案 A: 使用全局状态标志 - 不够清晰，难以维护
-- 方案 B: 返回特定错误类型 - 清晰，符合 Go 错误处理习惯 ✓
-- 方案 C: 使用 context 传递控制信息 - 过度设计
+**Alternatives Considered**:
+- Option A: Use global state flag - not clear enough, difficult to maintain
+- Option B: Return specific error type - clear, conforms to Go error handling conventions ✓
+- Option C: Use context to pass control information - over-engineered
 
-**实现**: 定义 `var ErrReturnToMenu = errors.New("return to main menu")`，在 chat 模式中需要返回时返回此错误。
+**Implementation**: Define `var ErrReturnToMenu = errors.New("return to main menu")`, return this error when chat mode needs to return.
 
-### 2. Source 编辑功能
-**决策**: 在 `internal/source/manager.go` 中增加 `UpdateSource(name string, updated *Source) error` 函数，在 `internal/cli/source.go` 中增加 `editSource()` 函数和菜单项。
+### 2. Source Edit Functionality
+**Decision**: Add `UpdateSource(name string, updated *Source) error` function in `internal/source/manager.go`, add `editSource()` function and menu item in `internal/cli/source.go`.
 
-**实现细节**:
-- 编辑时允许修改所有字段（name, host, port, database, username, password）
-- 如果修改了 name，需要检查新 name 的唯一性
-- 如果修改了 host/port/username，需要检查是否与现有 source 冲突（基于唯一性规则）
+**Implementation Details**:
+- Allow modifying all fields during edit (name, host, port, database, username, password)
+- If name is modified, need to check uniqueness of new name
+- If host/port/username is modified, need to check for conflicts with existing sources (based on uniqueness rules)
 
-### 3. Chat 模式命令增强
-**决策**: 
-- `/exit` 命令：与现有的 `exit`/`back` 文本命令功能相同，统一处理
-- `/help` 命令：显示可用命令列表和使用说明
-- Tab 补全：使用 readline 的 `SetCompleter()` 功能，提供命令补全（`/exit`, `/help`, `/history`, `/clear`）
+### 3. Chat Mode Command Enhancements
+**Decision**: 
+- `/exit` command: Same functionality as existing `exit`/`back` text commands, unified handling
+- `/help` command: Display available command list and usage instructions
+- Tab completion: Use readline's `SetCompleter()` functionality, provide command completion (`/exit`, `/help`, `/history`, `/clear`)
 
-**命令解析优先级**:
-1. 以 `/` 开头的命令（如 `/exit`, `/help`）
-2. 文本命令（如 `exit`, `back`）
-3. 自然语言查询
+**Command Parsing Priority**:
+1. Commands starting with `/` (like `/exit`, `/help`)
+2. Text commands (like `exit`, `back`)
+3. Natural language queries
 
-**Tab 补全范围**:
-- 命令补全：`/exit`, `/help`, `/history`, `/clear`
-- 不补全自然语言查询（避免干扰）
+**Tab Completion Scope**:
+- Command completion: `/exit`, `/help`, `/history`, `/clear`
+- Do not complete natural language queries (avoid interference)
 
-### 4. 命令行 `-D` 参数处理
-**决策**: 在 `RunSQLModeWithSource()` 中增加可选参数 `overrideDatabase string`，当提供时，临时覆盖 source 的 database 字段用于连接，但不修改持久化的 source 配置。
+### 4. Command-line `-D` Parameter Processing
+**Decision**: Add optional parameter `overrideDatabase string` to `RunSQLModeWithSource()`, when provided, temporarily override source's database field for connection, but do not modify persisted source configuration.
 
-**实现细节**:
-- `DatabaseArgs` 结构已包含 `Database` 字段
-- 在 `internal/cli/dbconnect.go` 或调用处，传递 `Database` 值到 `RunSQLModeWithSource()`
-- 在 `RunSQLModeWithSource()` 中，如果 `overrideDatabase` 不为空，创建临时的 source 副本用于连接
-- Source 的唯一性仍基于 host-port-username，`-D` 参数不影响 source 的创建和查找逻辑
+**Implementation Details**:
+- `DatabaseArgs` structure already contains `Database` field
+- In `internal/cli/dbconnect.go` or calling location, pass `Database` value to `RunSQLModeWithSource()`
+- In `RunSQLModeWithSource()`, if `overrideDatabase` is not empty, create temporary source copy for connection
+- Source uniqueness is still based on host-port-username, `-D` parameter does not affect source creation and lookup logic
 
 ## Risks / Trade-offs
 
-**[Risk] 命令解析冲突**: `/exit` 可能与用户输入的自然语言查询冲突（如用户输入 "how to exit"）
-- **Mitigation**: 严格检查命令格式，只有以 `/` 开头且完全匹配命令名时才视为命令
+**[Risk] Command Parsing Conflict**: `/exit` may conflict with user's natural language queries (e.g., user inputs "how to exit")
+- **Mitigation**: Strictly check command format, only treat as command when starts with `/` and exactly matches command name
 
-**[Risk] Tab 补全干扰**: Tab 补全可能干扰用户的自然语言输入
-- **Mitigation**: 只在用户输入以 `/` 开头时提供命令补全，其他情况不补全
+**[Risk] Tab Completion Interference**: Tab completion may interfere with user's natural language input
+- **Mitigation**: Only provide command completion when user input starts with `/`, do not complete in other cases
 
-**[Risk] Source 编辑时的唯一性冲突**: 编辑 source 时修改 host/port/username 可能与现有 source 冲突
-- **Mitigation**: 在 `UpdateSource()` 中检查唯一性，如果冲突则返回错误
+**[Risk] Source Uniqueness Conflict During Edit**: Modifying host/port/username during source edit may conflict with existing sources
+- **Mitigation**: Check uniqueness in `UpdateSource()`, return error if conflict
 
-**[Trade-off] `-D` 参数不持久化**: 用户可能期望 `-D` 参数能更新 source 的 database 字段
-- **Rationale**: Source 的唯一性基于 host-port-username，database 是连接参数而非身份标识。用户可以在编辑 source 时修改 database，但命令行参数应该只影响当次执行
+**[Trade-off] `-D` Parameter Not Persisted**: Users may expect `-D` parameter to update source's database field
+- **Rationale**: Source uniqueness is based on host-port-username, database is a connection parameter rather than identity identifier. Users can modify database when editing source, but command-line parameter should only affect that execution
 
 ## Migration Plan
 
-1. **Phase 1**: 实现 chat 模式返回主菜单功能
-   - 修改 `RunSQLMode()` 返回逻辑
-   - 修改主菜单循环处理返回值
-   - 测试返回功能
+1. **Phase 1**: Implement chat mode return to main menu functionality
+   - Modify `RunSQLMode()` return logic
+   - Modify main menu loop to handle return value
+   - Test return functionality
 
-2. **Phase 2**: 实现 source 编辑功能
-   - 增加 `UpdateSource()` 函数
-   - 增加 `editSource()` 菜单项
-   - 测试编辑功能
+2. **Phase 2**: Implement source edit functionality
+   - Add `UpdateSource()` function
+   - Add `editSource()` menu item
+   - Test edit functionality
 
-3. **Phase 3**: 实现 chat 模式命令增强
-   - 增加 `/exit`、`/help` 命令处理
-   - 实现 Tab 补全
-   - 测试命令和补全功能
+3. **Phase 3**: Implement chat mode command enhancements
+   - Add `/exit`, `/help` command handling
+   - Implement Tab completion
+   - Test commands and completion functionality
 
-4. **Phase 4**: 优化 `-D` 参数处理
-   - 修改 `RunSQLModeWithSource()` 支持 database 覆盖
-   - 修改命令行参数传递逻辑
-   - 测试 `-D` 参数功能
+4. **Phase 4**: Optimize `-D` parameter processing
+   - Modify `RunSQLModeWithSource()` to support database override
+   - Modify command-line parameter passing logic
+   - Test `-D` parameter functionality
 
 ## Open Questions
 
-1. Tab 补全是否应该支持历史查询补全？（当前决策：不支持，避免干扰）
-2. `/help` 命令是否应该显示更详细的使用示例？（当前决策：显示命令列表和简要说明即可）
+1. Should Tab completion support history query completion? (Current decision: No, avoid interference)
+2. Should `/help` command display more detailed usage examples? (Current decision: Display command list and brief descriptions is sufficient)

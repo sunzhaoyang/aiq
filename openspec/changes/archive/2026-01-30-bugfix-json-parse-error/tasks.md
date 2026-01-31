@@ -1,29 +1,29 @@
-## 1. 改进 ParseArguments() 函数
+## 1. Improve ParseArguments() Function
 
-- [x] 1.1 实现递归 unquote 逻辑，处理多重编码的 JSON 字符串
-- [x] 1.2 添加最大递归深度限制（默认 10 层），防止无限循环
-- [x] 1.3 改进错误信息，包含原始参数和解析步骤信息
-- [x] 1.4 添加 JSON 对象结构验证，确保解析结果是有效的 map[string]interface{}
+- [x] 1.1 Implement recursive unquote logic to handle multi-layer encoded JSON strings
+- [x] 1.2 Add maximum recursion depth limit (default 10 layers) to prevent infinite loops
+- [x] 1.3 Improve error messages to include original parameters and parsing step information
+- [x] 1.4 Add JSON object structure validation to ensure parsed result is valid map[string]interface{}
 
-## 2. 简化错误处理逻辑
+## 2. Simplify Error Handling Logic
 
-- [x] 2.1 移除 tool_handler.go 中重复的 JSON 解析错误处理逻辑
-- [x] 2.2 确保所有 JSON 解析错误都在 ParseArguments() 中统一处理
-- [x] 2.3 更新 tool_handler.go 中的错误处理，只处理工具执行相关的错误
+- [x] 2.1 Remove duplicate JSON parsing error handling logic in tool_handler.go
+- [x] 2.2 Ensure all JSON parsing errors are uniformly handled in ParseArguments()
+- [x] 2.3 Update error handling in tool_handler.go to only handle tool execution-related errors
 
-## 3. 添加测试用例
+## 3. Add Test Cases
 
-- [x] 3.1 添加测试用例：标准 JSON 对象参数解析
-- [x] 3.2 添加测试用例：双重编码 JSON 字符串解析
-- [x] 3.3 添加测试用例：多重编码 JSON 字符串解析（3+ 层）
-- [x] 3.4 添加测试用例：包含转义字符的 JSON 字符串解析
-- [x] 3.5 添加测试用例：空字符串和空白字符处理
-- [x] 3.6 添加测试用例：无效 JSON 格式处理
-- [x] 3.7 添加测试用例：达到最大递归深度时的处理
-- [x] 3.8 添加测试用例：错误信息包含原始参数
+- [x] 3.1 Add test case: Standard JSON object parameter parsing
+- [x] 3.2 Add test case: Double-encoded JSON string parsing
+- [x] 3.3 Add test case: Multi-layer encoded JSON string parsing (3+ layers)
+- [x] 3.4 Add test case: JSON string parsing with escape sequences
+- [x] 3.5 Add test case: Empty string and whitespace handling
+- [x] 3.6 Add test case: Invalid JSON format handling
+- [x] 3.7 Add test case: Handling when maximum recursion depth is reached
+- [x] 3.8 Add test case: Error message includes original parameters
 
-## 4. 验证和测试
+## 4. Verification and Testing
 
-- [x] 4.1 运行现有测试，确保没有回归
-- [ ] 4.2 手动测试实际场景：使用 execute_command 工具调用（需要实际运行应用测试）
-- [ ] 4.3 验证错误信息的清晰度和有用性（需要实际运行应用测试）
+- [x] 4.1 Run existing tests to ensure no regression
+- [ ] 4.2 Manual testing of actual scenarios: Use execute_command tool calls (requires running application for testing)
+- [ ] 4.3 Verify clarity and usefulness of error messages (requires running application for testing)

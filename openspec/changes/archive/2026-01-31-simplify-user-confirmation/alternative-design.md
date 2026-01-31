@@ -1,16 +1,16 @@
 # Alternative Design: LLM-Assisted Risk Assessment
 
-## 方案C：LLM在Tool Call中提供Risk Level（推荐）
+## Option C: LLM Provides Risk Level in Tool Call (Recommended)
 
-### 核心思路
-- LLM在调用工具时，在arguments中添加可选的`risk_level`字段
-- 代码层优先使用LLM提供的risk_level，如果没有则做保守判断
-- 结合代码层的基础规则和LLM的智能判断
+### Core Concept
+- LLM adds optional `risk_level` field in arguments when calling tools
+- Code layer prioritizes LLM-provided risk_level, if not provided makes conservative judgment
+- Combines code layer basic rules with LLM's intelligent judgment
 
-### 实现方式
+### Implementation
 
-#### 1. Tool Definition扩展
-在所有工具的parameters中添加可选的`risk_level`字段：
+#### 1. Tool Definition Extension
+Add optional `risk_level` field to parameters of all tools:
 
 ```json
 {
@@ -26,59 +26,59 @@
 }
 ```
 
-#### 2. Prompt指导
-在prompt中指导LLM：
-- 对于明显安全的操作（SELECT, SHOW, ls, read），设置`risk_level: "low"`
-- 对于明显危险的操作（DROP, TRUNCATE, rm, write），设置`risk_level: "high"`
-- 对于不确定的操作（init, reboot, 自定义脚本），设置`risk_level: "high"`或询问用户
+#### 2. Prompt Guidance
+Guide LLM in prompts:
+- For obviously safe operations (SELECT, SHOW, ls, read), set `risk_level: "low"`
+- For obviously dangerous operations (DROP, TRUNCATE, rm, write), set `risk_level: "high"`
+- For uncertain operations (init, reboot, custom scripts), set `risk_level: "high"` or ask user
 
-#### 3. 代码层处理逻辑
+#### 3. Code Layer Processing Logic
 ```go
 func assessRisk(toolCall, args) RiskDecision {
-    // 1. 检查LLM提供的risk_level
+    // 1. Check LLM-provided risk_level
     if riskLevel, ok := args["risk_level"].(string); ok {
         switch riskLevel {
         case "low":
-            return RiskLow  // 直接执行
+            return RiskLow  // Execute directly
         case "medium", "high":
-            return RiskHigh  // 需要确认
+            return RiskHigh  // Require confirmation
         }
     }
     
-    // 2. LLM没有提供risk_level，代码层做保守判断
-    // 只对明确安全的操作（白名单）直接执行
+    // 2. LLM didn't provide risk_level, code layer makes conservative judgment
+    // Only execute directly for clearly safe operations (whitelist)
     if isWhitelisted(toolCall, args) {
         return RiskLow
     }
     
-    // 3. 其他情况默认需要确认（保守策略）
+    // 3. Other cases default to requiring confirmation (conservative strategy)
     return RiskHigh
 }
 ```
 
-### 优势
-- ✅ LLM可以智能判断未知命令的风险
-- ✅ 代码层有基础规则保障（白名单）
-- ✅ 不需要穷举所有危险命令
-- ✅ LLM判断错误时，代码层保守策略保证安全
-- ✅ 符合Agent流程：LLM做决策，代码层执行
+### Advantages
+- ✅ LLM can intelligently judge risk of unknown commands
+- ✅ Code layer has basic rules guarantee (whitelist)
+- ✅ No need to exhaustively list all dangerous commands
+- ✅ When LLM judgment is wrong, code layer conservative strategy ensures safety
+- ✅ Conforms to Agent flow: LLM makes decisions, code layer executes
 
-### 劣势
-- ⚠️ 需要修改所有tool definitions
-- ⚠️ LLM可能不总是提供risk_level（需要fallback）
+### Disadvantages
+- ⚠️ Need to modify all tool definitions
+- ⚠️ LLM may not always provide risk_level (needs fallback)
 
 ---
 
-## 方案D：两阶段Tool Call（LLM先评估风险）
+## Option D: Two-Phase Tool Call (LLM Assesses Risk First)
 
-### 核心思路
-- LLM在调用实际工具前，先调用一个`assess_risk`工具
-- `assess_risk`工具返回风险级别
-- 代码层根据风险级别决定是否确认
+### Core Concept
+- LLM calls an `assess_risk` tool before calling actual tool
+- `assess_risk` tool returns risk level
+- Code layer decides whether to confirm based on risk level
 
-### 实现方式
+### Implementation
 
-#### 1. 新增assess_risk工具
+#### 1. New assess_risk Tool
 ```go
 {
   "name": "assess_risk",
@@ -90,51 +90,51 @@ func assessRisk(toolCall, args) RiskDecision {
 }
 ```
 
-#### 2. 流程
+#### 2. Flow
 ```
-1. LLM调用assess_risk工具
-2. assess_risk返回risk_level
-3. 代码层根据risk_level决定：
-   - low → 直接执行原工具
-   - high → 要求确认后执行
-4. LLM调用实际工具
+1. LLM calls assess_risk tool
+2. assess_risk returns risk_level
+3. Code layer decides based on risk_level:
+   - low → Execute original tool directly
+   - high → Require confirmation before execution
+4. LLM calls actual tool
 ```
 
-### 优势
-- ✅ 分离关注点：风险评估和执行分离
-- ✅ LLM可以充分评估风险
+### Advantages
+- ✅ Separation of concerns: Risk assessment and execution separated
+- ✅ LLM can fully assess risk
 
-### 劣势
-- ⚠️ 增加一次LLM调用，影响性能
-- ⚠️ 增加复杂度
-- ⚠️ 可能被LLM跳过（不调用assess_risk）
+### Disadvantages
+- ⚠️ Adds one LLM call, affects performance
+- ⚠️ Increases complexity
+- ⚠️ May be skipped by LLM (doesn't call assess_risk)
 
 ---
 
-## 方案E：代码层异步询问LLM（不推荐）
+## Option E: Code Layer Asynchronously Asks LLM (Not Recommended)
 
-### 核心思路
-- 代码层先做基础判断
-- 如果无法确定，异步调用LLM快速评估风险
-- 根据LLM评估结果决定是否确认
+### Core Concept
+- Code layer makes basic judgment first
+- If uncertain, asynchronously call LLM for quick risk assessment
+- Decide whether to confirm based on LLM assessment result
 
-### 劣势
-- ❌ 需要异步调用LLM，影响性能
-- ❌ 增加延迟
-- ❌ 实现复杂
+### Disadvantages
+- ❌ Need to asynchronously call LLM, affects performance
+- ❌ Adds latency
+- ❌ Complex implementation
 
 ---
 
-## 方案F：LLM返回文本询问用户（符合Agent流程）
+## Option F: LLM Returns Text to Ask User (Conforms to Agent Flow)
 
-### 核心思路
-- LLM在调用工具前，如果不确定风险，可以返回文本询问用户
-- 用户确认后，LLM再调用工具
-- 代码层只处理明确的情况（白名单直接执行，其他需要确认）
+### Core Concept
+- LLM can return text to ask user before calling tool if uncertain about risk
+- After user confirms, LLM calls tool
+- Code layer only handles clear cases (whitelist executes directly, others require confirmation)
 
-### 实现方式
+### Implementation
 
-#### Prompt指导
+#### Prompt Guidance
 ```
 <RISK_ASSESSMENT>
 When calling tools, assess the risk level:
@@ -150,61 +150,61 @@ If you're uncertain about an operation's risk, you can:
 </RISK_ASSESSMENT>
 ```
 
-#### 代码层处理
+#### Code Layer Processing
 ```go
-// 如果LLM返回文本询问用户（没有tool_calls）
+// If LLM returns text asking user (no tool_calls)
 if len(message.ToolCalls) == 0 && message.Content != "" {
-    // 检查是否是风险询问
+    // Check if it's a risk confirmation question
     if isRiskConfirmationQuestion(message.Content) {
-        // 显示给用户，等待用户确认
-        // 用户确认后，LLM可以继续调用工具
+        // Display to user, wait for user confirmation
+        // After user confirms, LLM can continue calling tool
         return message.Content, nil, nil
     }
 }
 ```
 
-### 优势
-- ✅ 符合Agent流程：LLM可以做决策
-- ✅ 灵活：LLM可以选择询问或直接调用
-- ✅ 不需要修改tool definitions
-- ✅ 代码层保持简单
+### Advantages
+- ✅ Conforms to Agent flow: LLM can make decisions
+- ✅ Flexible: LLM can choose to ask or call directly
+- ✅ No need to modify tool definitions
+- ✅ Code layer remains simple
 
-### 劣势
-- ⚠️ 可能违反"必须调用工具"的原则（但可以允许在不确定时询问）
+### Disadvantages
+- ⚠️ May violate "must call tool" principle (but can allow asking when uncertain)
 
 ---
 
-## 推荐方案：方案C（LLM在Tool Call中提供Risk Level）
+## Recommended Option: Option C (LLM Provides Risk Level in Tool Call)
 
-结合方案C和方案F的优点：
-1. **主要方式**：LLM在tool call的arguments中提供`risk_level`
-2. **备选方式**：如果LLM不确定，可以返回文本询问用户（允许这种例外）
-3. **代码层保障**：代码层有基础白名单，即使LLM不提供risk_level也能工作
+Combining advantages of Option C and Option F:
+1. **Primary Method**: LLM provides `risk_level` in tool call arguments
+2. **Alternative Method**: If LLM is uncertain, can return text to ask user (allow this exception)
+3. **Code Layer Guarantee**: Code layer has basic whitelist, can work even if LLM doesn't provide risk_level
 
-### 最终流程
+### Final Flow
 
 ```
-1. LLM决定调用工具
+1. LLM decides to call tool
    ↓
-2. LLM在arguments中添加risk_level（可选）
+2. LLM adds risk_level in arguments (optional)
    ↓
-3. 代码层评估：
-   - 如果LLM提供了risk_level="low" → 直接执行
-   - 如果LLM提供了risk_level="high" → 要求确认
-   - 如果LLM没有提供risk_level：
-     - 代码层白名单 → 直接执行
-     - 其他 → 要求确认（保守策略）
+3. Code layer assessment:
+   - If LLM provided risk_level="low" → Execute directly
+   - If LLM provided risk_level="high" → Require confirmation
+   - If LLM didn't provide risk_level:
+     - Code layer whitelist → Execute directly
+     - Others → Require confirmation (conservative strategy)
    ↓
-4. 如果需要确认：
-   - 显示操作内容
-   - 询问用户确认
-   - 用户确认后执行
+4. If confirmation needed:
+   - Display operation content
+   - Ask user for confirmation
+   - Execute after user confirms
 ```
 
-### 特殊情况处理
+### Special Case Handling
 
-如果LLM不确定操作风险，可以：
-- **方式1**：调用工具时设置`risk_level="high"`，让系统要求确认
-- **方式2**：返回文本询问用户："This operation (init system) may be risky. Should I proceed?"
-  - 用户确认后，LLM再调用工具
-  - 这是Agent流程的一部分，允许LLM在不确定时询问用户
+If LLM is uncertain about operation risk, can:
+- **Method 1**: Set `risk_level="high"` when calling tool, let system require confirmation
+- **Method 2**: Return text asking user: "This operation (init system) may be risky. Should I proceed?"
+  - After user confirms, LLM calls tool
+  - This is part of Agent flow, allows LLM to ask user when uncertain

@@ -1,63 +1,63 @@
 ## Why
 
-当前命令执行流程的用户体验不够友好：执行命令时输出会刷屏，影响用户查看上下文；执行结果全部返回给 LLM 导致 token 浪费；缺少便捷的一键安装脚本，用户需要手动下载和配置 PATH，降低了产品的易用性和专业度。参考 Cursor、zsh、brew 等优秀产品的设计，需要改进命令执行显示方式并增加安装脚本。
+The current command execution flow has poor user experience: command output floods the screen during execution, affecting users' ability to view context; returning all execution results to LLM wastes tokens; lack of convenient one-click installation script requires users to manually download and configure PATH, reducing product usability and professionalism. Referencing excellent designs from Cursor, zsh, brew, etc., we need to improve command execution display and add installation scripts.
 
 ## What Changes
 
-- **命令执行显示优化**：
-  - 使用灰色字体显示 tool call 信息，在当前位置的 2-3 行范围内滚动展示最新输出（类似 Cursor 的设计）
-  - 执行成功后截取少量输出返回给 LLM（例如最后 10-20 行），减少 token 消耗
-  - 执行失败时多截取输出返回给 LLM（例如最后 50-100 行），帮助 LLM 判断错误原因
-  - 避免刷屏，保持界面整洁
-- **一键安装脚本**：
-  - **Unix/Linux/macOS** (`install.sh`)：
-    - 自动检测最新版本（通过 GitHub Releases API 获取 latest tag）
-    - 自动检测系统架构（darwin-amd64, darwin-arm64, linux-amd64, linux-arm64）
-    - 自动下载对应平台的 binary 包
-    - 自动将 `aiq` 添加到 `$PATH`（支持 bash/zsh，检测并更新 `.bashrc`、`.zshrc` 或 `.profile`）
-    - 使用中国大陆可访问的 CDN 加速（jsdelivr）下载 Release 包
-    - 提供安装验证和错误处理
-  - **Windows** (`install.bat`)：
-    - 自动检测最新版本（通过 GitHub Releases API 获取 latest tag）
-    - 自动检测系统架构（windows-amd64）
-    - 自动下载对应平台的 binary 包（`.exe`）
-    - 自动将 `aiq.exe` 添加到 `%PATH%`（更新用户环境变量）
-    - 使用中国大陆可访问的 CDN 加速（jsdelivr）下载 Release 包
-    - 提供安装验证和错误处理
+- **Command Execution Display Optimization**:
+  - Use gray font to display tool call information, scroll to show latest output within 2-3 lines at current position (similar to Cursor's design)
+  - Truncate small amount of output when execution succeeds and return to LLM (e.g., last 10-20 lines) to reduce token consumption
+  - Truncate more output when execution fails and return to LLM (e.g., last 50-100 lines) to help LLM determine error cause
+  - Avoid screen flooding, keep interface clean
+- **One-Click Installation Script**:
+  - **Unix/Linux/macOS** (`install.sh`):
+    - Automatically detect latest version (get latest tag via GitHub Releases API)
+    - Automatically detect system architecture (darwin-amd64, darwin-arm64, linux-amd64, linux-arm64)
+    - Automatically download corresponding platform binary package
+    - Automatically add `aiq` to `$PATH` (support bash/zsh, detect and update `.bashrc`, `.zshrc` or `.profile`)
+    - Use CDN acceleration accessible in mainland China (jsdelivr) to download Release packages
+    - Provide installation verification and error handling
+  - **Windows** (`install.bat`):
+    - Automatically detect latest version (get latest tag via GitHub Releases API)
+    - Automatically detect system architecture (windows-amd64)
+    - Automatically download corresponding platform binary package (`.exe`)
+    - Automatically add `aiq.exe` to `%PATH%` (update user environment variables)
+    - Use CDN acceleration accessible in mainland China (jsdelivr) to download Release packages
+    - Provide installation verification and error handling
 
-**BREAKING**: 无
+**BREAKING**: None
 
 ## Capabilities
 
 ### New Capabilities
 
-- `command-execution-display`: 命令执行时的实时显示优化，包括灰色字体、滚动输出、输出截断策略
-- `installation-script`: 一键安装脚本，支持 Unix/Linux/macOS (`install.sh`) 和 Windows (`install.bat`)，自动检测最新版本、系统架构、下载 binary、配置 PATH、CDN 加速
+- `command-execution-display`: Real-time display optimization during command execution, including gray font, scrolling output, output truncation strategy
+- `installation-script`: One-click installation script, supports Unix/Linux/macOS (`install.sh`) and Windows (`install.bat`), automatically detects latest version, system architecture, downloads binary, configures PATH, CDN acceleration
 
 ### Modified Capabilities
 
-- `cli-application`: 可能需要添加安装说明或安装脚本的引用（如果需要在 CLI 中提示用户如何安装）
+- `cli-application`: May need to add installation instructions or installation script references (if need to prompt users how to install in CLI)
 
 ## Impact
 
-**受影响的代码模块：**
+**Affected Code Modules:**
 
-- `internal/sql/tool_handler.go`: 需要修改 `execute_command` tool 的显示逻辑，实现滚动输出和输出截断
-- `internal/ui/`: 可能需要添加新的 UI 组件用于滚动显示命令输出（灰色字体、位置控制）
-- `internal/tool/builtin/command_tool.go`: 可能需要修改返回给 LLM 的结果格式，实现输出截断逻辑
-- 新增 `scripts/install.sh`: Unix/Linux/macOS 安装脚本（支持版本检测）
-- 新增 `scripts/install.bat`: Windows 安装脚本（支持版本检测）
+- `internal/sql/tool_handler.go`: Need to modify display logic of `execute_command` tool to implement scrolling output and output truncation
+- `internal/ui/`: May need to add new UI components for scrolling command output display (gray font, position control)
+- `internal/tool/builtin/command_tool.go`: May need to modify result format returned to LLM to implement output truncation logic
+- New `scripts/install.sh`: Unix/Linux/macOS installation script (supports version detection)
+- New `scripts/install.bat`: Windows installation script (supports version detection)
 
-**依赖项：**
+**Dependencies:**
 
-- 可能需要终端控制库（如 `github.com/charmbracelet/lipgloss` 已在使用）用于格式化输出
-- 需要支持 ANSI 转义序列用于滚动显示和颜色控制
+- May need terminal control library (e.g., `github.com/charmbracelet/lipgloss` already in use) for formatting output
+- Need to support ANSI escape sequences for scrolling display and color control
 
-**用户体验改进：**
+**User Experience Improvements:**
 
-- 命令执行时界面更整洁，不会刷屏
-- 用户可以实时看到命令执行进度
-- 安装过程更简单，一键完成，支持 Unix/Linux/macOS 和 Windows
-- 自动安装最新版本，无需手动指定版本号
-- 中国大陆用户下载速度更快（CDN 加速）
+- Interface is cleaner during command execution, no screen flooding
+- Users can see command execution progress in real-time
+- Installation process is simpler, one-click completion, supports Unix/Linux/macOS and Windows
+- Automatically install latest version, no need to manually specify version number
+- Faster download speed for users in mainland China (CDN acceleration)
 
